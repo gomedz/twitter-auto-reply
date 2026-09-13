@@ -120,6 +120,49 @@
       <div id="test-output" class="test-output" style="display: none;"></div>
     </section>
 
+    <!-- Donate Section -->
+    <section class="donate-section">
+      <button type="button" id="btn-donate-toggle" class="btn btn-donate">
+        <span class="donate-icon">☕</span>
+        <span>Donate</span>
+        <span class="donate-arrow" id="donate-arrow">▾</span>
+      </button>
+
+      <div id="donate-info" class="card donate-card" style="display: none;">
+        <p class="donate-intro">If you found this project helpful, consider buying me a coffee...</p>
+        
+        <div class="donate-links">
+          <!-- Trakteer -->
+          <a href="https://teer.id/gomedz" target="_blank" rel="noopener noreferrer" class="donate-item">
+            <span class="donate-item-badge">🇮🇩</span>
+            <div class="donate-item-text">
+              <span class="donate-label">Trakteer ID</span>
+              <span class="donate-url">https://teer.id/gomedz &nearr;</span>
+            </div>
+          </a>
+
+          <!-- Buy Me a Coffee -->
+          <a href="https://www.buymeacoffee.com/gomed" target="_blank" rel="noopener noreferrer" class="donate-item">
+            <span class="donate-item-badge">☕</span>
+            <div class="donate-item-text">
+              <span class="donate-label">Buy me a coffee</span>
+              <span class="donate-url">https://www.buymeacoffee.com/gomed &nearr;</span>
+            </div>
+          </a>
+
+          <!-- Crypto -->
+          <div class="donate-item crypto-box">
+            <span class="donate-item-badge">🪙</span>
+            <div class="donate-item-text">
+              <span class="donate-label">Crypto (EVM / ETH / BSC)</span>
+              <span class="donate-crypto-address" id="crypto-address" title="Click to copy">0x8cD08357a2a56ed90D0137AE7bee324bd772B90d</span>
+            </div>
+            <button type="button" id="btn-copy-crypto" class="btn-copy" title="Copy address">Copy</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Footer -->
     <footer class="footer">
       <span>Works seamlessly on Twitter (X)</span>

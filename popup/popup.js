@@ -190,6 +190,73 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Donate section toggle & links
+  const btnDonateToggle = document.getElementById('btn-donate-toggle');
+  const donateInfo = document.getElementById('donate-info');
+  const donateArrow = document.getElementById('donate-arrow');
+  const btnCopyCrypto = document.getElementById('btn-copy-crypto');
+  const cryptoAddress = document.getElementById('crypto-address');
+
+  if (btnDonateToggle && donateInfo) {
+    btnDonateToggle.addEventListener('click', () => {
+      const isHidden = donateInfo.style.display === 'none' || !donateInfo.style.display;
+      donateInfo.style.display = isHidden ? 'flex' : 'none';
+      if (donateArrow) {
+        donateArrow.classList.toggle('open', isHidden);
+      }
+      if (isHidden) {
+        donateInfo.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    });
+  }
+
+  // Copy crypto address
+  async function copyCryptoAddress() {
+    if (!cryptoAddress) return;
+    const text = cryptoAddress.textContent.trim();
+    try {
+      await navigator.clipboard.writeText(text);
+      if (btnCopyCrypto) {
+        const originalText = btnCopyCrypto.textContent;
+        btnCopyCrypto.textContent = 'Copied!';
+        btnCopyCrypto.classList.add('copied');
+        setTimeout(() => {
+          btnCopyCrypto.textContent = originalText;
+          btnCopyCrypto.classList.remove('copied');
+        }, 2000);
+      }
+    } catch (err) {
+      console.error('Failed to copy crypto address:', err);
+    }
+  }
+
+  if (btnCopyCrypto) {
+    btnCopyCrypto.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyCryptoAddress();
+    });
+  }
+
+  if (cryptoAddress) {
+    cryptoAddress.addEventListener('click', () => {
+      copyCryptoAddress();
+    });
+  }
+
+  // Make external links clickable in new Chrome tabs
+  if (donateInfo) {
+    const donateLinks = donateInfo.querySelectorAll('a[href]');
+    donateLinks.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const url = link.getAttribute('href');
+        if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+          chrome.tabs.create({ url });
+        }
+      });
+    });
+  }
+
   // Initial status check
   checkStatus();
 });
