@@ -105,6 +105,15 @@ Anyone can install and run this extension locally in under 2 minutes:
 
 ---
 
+## ☕ Donate
+
+**If you found this project helpful, consider buying me a coffee!**
+   - Trakteer ID : [teer.id/gomedz](https://teer.id/gomedz)
+   - Buy me a coffee : [buymeacoffee.com/gomed](https://www.buymeacoffee.com/gomed)
+   - Cypto : 0x8cD08357a2a56ed90D0137AE7bee324bd772B90d
+
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
