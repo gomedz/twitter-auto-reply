@@ -263,28 +263,37 @@ async function findGeminiTab() {
   return appTab || tabs[0];
 }
 
+// Wait until Gemini tab completes loading and has rendered its prompt input
+async function waitForGeminiTabReady(tabId, timeoutMs = 25000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab && tab.status === 'complete') {
+        const status = await sendToGeminiTab(tabId, { type: 'CHECK_AUTH_STATUS' }, 2000);
+        if (status && (status.hasInput || status.hasChatUI)) {
+          return true;
+        }
+      }
+    } catch (e) {
+      // Tab loading, redirecting, or script not injected yet
+    }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return false;
+}
+
 async function openGeminiTab(inBackground = false) {
   const tab = await chrome.tabs.create({
     url: GEMINI_URL,
     active: !inBackground
   });
 
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve(tab);
-    }, 15000);
-
-    const listener = (tabId, changeInfo) => {
-      if (tabId === tab.id && changeInfo.status === 'complete') {
-        clearTimeout(timeout);
-        chrome.tabs.onUpdated.removeListener(listener);
-        setTimeout(() => resolve(tab), 2500);
-      }
-    };
-
-    chrome.tabs.onUpdated.addListener(listener);
-  });
+  const isReady = await waitForGeminiTabReady(tab.id, 25000);
+  if (!isReady) {
+    console.warn('[Background] Gemini tab took longer than expected to report ready.');
+  }
+  return tab;
 }
 
 function sendMessageOnce(tabId, message, timeoutMs) {
@@ -339,13 +348,38 @@ async function generateViaWebTab(promptText) {
   const settings = await chrome.storage.local.get(['autoOpenGemini', 'autoCloseTab']);
   let geminiTab = await findGeminiTab();
   let createdNewTab = false;
+  let callerTab = null;
 
   if (!geminiTab) {
     if (settings.autoOpenGemini === false) {
       throw new Error('Gemini tab is not open. Please open gemini.google.com/app or choose Gemini Nano engine.');
     }
-    geminiTab = await openGeminiTab(true);
+
+    // Save current active tab (e.g. Twitter) so we can keep user focused there
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      callerTab = activeTab;
+    } catch (e) {}
+
+    // Open Gemini tab active so Chrome hydrates Angular/Lit at full speed (no background throttling)
+    geminiTab = await chrome.tabs.create({
+      url: GEMINI_URL,
+      active: true
+    });
     createdNewTab = true;
+
+    // Wait until Gemini has mounted its prompt input box
+    const isReady = await waitForGeminiTabReady(geminiTab.id, 25000);
+    if (!isReady) {
+      throw new Error('Gemini tab took too long to load. Please ensure you are logged into gemini.google.com/app.');
+    }
+
+    // Immediately restore the caller tab as active so the user stays on Twitter!
+    if (callerTab) {
+      try {
+        await chrome.tabs.update(callerTab.id, { active: true });
+      } catch (e) {}
+    }
   }
 
   try {
@@ -358,7 +392,8 @@ async function generateViaWebTab(promptText) {
       throw new Error(geminiResult?.message || 'Gemini encountered an error.');
     }
 
-    if (createdNewTab && settings.autoCloseTab) {
+    // If we opened a temporary tab and auto-close is enabled (default true), close it!
+    if (createdNewTab && settings.autoCloseTab !== false) {
       try {
         await chrome.tabs.remove(geminiTab.id);
       } catch (e) {}
@@ -366,7 +401,7 @@ async function generateViaWebTab(promptText) {
 
     return geminiResult.reply;
   } catch (err) {
-    if (createdNewTab && settings.autoCloseTab) {
+    if (createdNewTab && settings.autoCloseTab !== false) {
       try {
         await chrome.tabs.remove(geminiTab.id);
       } catch (e) {}

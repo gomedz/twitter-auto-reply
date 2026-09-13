@@ -129,7 +129,7 @@ function checkLoginStatus() {
 }
 
 // Wait for input element to be available (useful if single-page app is hydrating)
-async function waitForInput(timeoutMs = 6000) {
+async function waitForInput(timeoutMs = 15000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const input = findInputElement();
@@ -141,7 +141,7 @@ async function waitForInput(timeoutMs = 6000) {
 
 // Set text in Gemini input box
 async function setGeminiInput(text) {
-  const input = await waitForInput(6000);
+  const input = await waitForInput(15000);
   if (!input) {
     throw new Error('Gemini input box not found. Please ensure you are on gemini.google.com/app and logged in.');
   }
@@ -153,25 +153,40 @@ async function setGeminiInput(text) {
   p.focus();
 
   // Select all existing content
-  const selection = window.getSelection();
-  const range = document.createRange();
-  range.selectNodeContents(input);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  let success = false;
+  try {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(input);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    success = document.execCommand('insertText', false, text);
+  } catch (e) {}
 
-  // Insert new text
-  const success = document.execCommand('insertText', false, text);
+  // If execCommand failed or didn't update text (common in unfocused/background tabs)
   if (!success || !input.innerText.trim()) {
     if (input.tagName === 'TEXTAREA') {
       input.value = text;
     } else {
       input.innerHTML = `<p>${escapeHtml(text)}</p>`;
     }
+
+    // Dispatch comprehensive InputEvent sequence so Quill / Angular updates internal state
+    input.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: text
+    }));
+    input.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: text
+    }));
   }
 
-  // Dispatch events so Angular / Quill / Lit registers the changes
-  input.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
-  input.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: text }));
+  // Dispatch standard events so Angular change detection fires
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
 
@@ -182,14 +197,25 @@ async function setGeminiInput(text) {
 // Click send button or press enter
 async function clickSend() {
   const start = Date.now();
-  // Wait up to 2.5 seconds for Send button to activate
-  while (Date.now() - start < 2500) {
+  // Wait up to 3 seconds for Send button to activate naturally
+  while (Date.now() - start < 3000) {
     const sendBtn = findElement(SEND_BUTTON_SELECTORS);
     if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
       sendBtn.click();
       return true;
     }
     await new Promise(r => setTimeout(r, 200));
+  }
+
+  // Force enable and click Send button if present
+  const sendBtn = findElement(SEND_BUTTON_SELECTORS);
+  if (sendBtn) {
+    sendBtn.disabled = false;
+    sendBtn.removeAttribute('disabled');
+    sendBtn.setAttribute('aria-disabled', 'false');
+    sendBtn.click();
+    sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    return true;
   }
 
   // Fallback: Dispatch Enter key on the input element
