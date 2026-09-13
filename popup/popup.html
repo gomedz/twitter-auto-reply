@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Twitter AI Auto Reply</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-icon">✦</div>
+        <div class="brand-info">
+          <h1>Twitter AI Reply</h1>
+          <span class="version-tag">Multi-Engine &bull; No API Key</span>
+        </div>
+      </div>
+      <div id="status-badge" class="status-badge checking" title="Click to refresh">
+        <span class="status-dot"></span>
+        <span id="status-text">Checking...</span>
+      </div>
+    </header>
+
+    <!-- Engine Selector -->
+    <section class="card engine-card">
+      <div class="section-title">Choose AI Engine</div>
+      <div class="engine-options">
+        <label class="engine-option active" id="opt-nano">
+          <input type="radio" name="engine" value="nano" checked>
+          <div class="engine-content">
+            <div class="engine-header">
+              <span class="engine-name">⚡ Gemini Nano</span>
+              <span class="badge badge-recommended">0 Tabs &bull; Local GPU</span>
+            </div>
+            <p class="engine-desc">Runs inside Chrome. 100% offline, local, private, and zero tabs.</p>
+          </div>
+        </label>
+
+        <label class="engine-option" id="opt-headless">
+          <input type="radio" name="engine" value="headless">
+          <div class="engine-content">
+            <div class="engine-header">
+              <span class="engine-name">🌐 Headless Web</span>
+              <span class="badge">0 Tabs &bull; Cookies</span>
+            </div>
+            <p class="engine-desc">Silent background web request using your Google account cookies.</p>
+          </div>
+        </label>
+
+        <label class="engine-option" id="opt-webtab">
+          <input type="radio" name="engine" value="web_tab">
+          <div class="engine-content">
+            <div class="engine-header">
+              <span class="engine-name">🗂️ Gemini Web Tab</span>
+              <span class="badge">Tab Bridge</span>
+            </div>
+            <p class="engine-desc">Automates real gemini.google.com tab with optional auto-close.</p>
+          </div>
+        </label>
+      </div>
+    </section>
+
+    <!-- Session Status Card -->
+    <section class="card session-card" id="session-card">
+      <div class="session-info">
+        <div class="session-title" id="session-title">Engine Status</div>
+        <p class="session-desc" id="session-desc">Checking engine connection...</p>
+      </div>
+      <button id="btn-open-gemini" class="btn btn-secondary" style="display: none;">
+        <span>Open Gemini</span>
+        <span class="external-icon">&nearr;</span>
+      </button>
+    </section>
+
+    <!-- Preferences Section -->
+    <section class="settings-section">
+      <div class="section-title">Preferences</div>
+
+      <!-- Default Tone -->
+      <div class="form-group">
+        <label for="default-tone">Default Reply Tone</label>
+        <select id="default-tone" class="form-select">
+          <option value="quick">⚡ Quick & Natural</option>
+          <option value="agree">👍 Agree & Supportive</option>
+          <option value="thoughtful">💡 Thoughtful Insight</option>
+          <option value="funny">😂 Witty & Humorous</option>
+          <option value="question">❓ Ask a Question</option>
+          <option value="debate">🔥 Counter-Point</option>
+        </select>
+      </div>
+
+      <!-- Custom Instructions -->
+      <div class="form-group">
+        <label for="custom-instructions">Custom Prompt Instructions</label>
+        <textarea id="custom-instructions" class="form-textarea" rows="2" placeholder="e.g. Keep reply under 200 characters. No hashtags."></textarea>
+      </div>
+
+      <!-- Tab Auto-Close Setting (for web_tab mode) -->
+      <div class="setting-row" id="row-autoclose">
+        <div class="setting-label">
+          <span>Auto-close Gemini tab</span>
+          <small>Automatically close tab after reply is generated</small>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="auto-close-toggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Test Reply Box -->
+    <section class="card test-card">
+      <div class="section-title">Test Selected Engine</div>
+      <div class="test-input-wrapper">
+        <input type="text" id="test-input" class="form-input" placeholder="Enter a sample tweet...">
+        <button id="btn-test" class="btn btn-primary">Generate</button>
+      </div>
+      <div id="test-output" class="test-output" style="display: none;"></div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>Works seamlessly on Twitter (X)</span>
+      <span class="save-status" id="save-status">Saved</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
