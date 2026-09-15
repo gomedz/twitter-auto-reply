@@ -47,7 +47,7 @@ async function setupExtension() {
             },
             condition: {
               urlFilter: 'https://gemini.google.com/_/BardChatUi/*',
-              resourceTypes: ['xmlhttprequest']
+              resourceTypes: ['xmlhttprequest', 'other']
             }
           }
         ]
@@ -150,9 +150,39 @@ async function generateViaNano(promptText) {
 // ==========================================
 let cachedTokens = { at: null, fdr: null, bl: null, timestamp: 0 };
 
-async function getHeadlessSessionTokens() {
+async function getCachedSessionTokens() {
   if (cachedTokens.at && Date.now() - cachedTokens.timestamp < 300000) {
     return cachedTokens;
+  }
+  try {
+    if (chrome.storage?.session) {
+      const data = await chrome.storage.session.get('headlessTokens');
+      if (data?.headlessTokens?.at && Date.now() - data.headlessTokens.timestamp < 300000) {
+        cachedTokens = data.headlessTokens;
+        return cachedTokens;
+      }
+    }
+  } catch (e) {
+    console.warn('[Background] chrome.storage.session read error:', e);
+  }
+  return null;
+}
+
+async function setCachedSessionTokens(tokens) {
+  cachedTokens = tokens;
+  try {
+    if (chrome.storage?.session) {
+      await chrome.storage.session.set({ headlessTokens: tokens });
+    }
+  } catch (e) {
+    console.warn('[Background] chrome.storage.session write error:', e);
+  }
+}
+
+async function getHeadlessSessionTokens() {
+  const cached = await getCachedSessionTokens();
+  if (cached) {
+    return cached;
   }
 
   const res = await fetch('https://gemini.google.com/app', {
@@ -173,14 +203,15 @@ async function getHeadlessSessionTokens() {
     throw new Error('Google session token (SNlM0e) not found. Please ensure you are logged into gemini.google.com in Chrome.');
   }
 
-  cachedTokens = {
+  const tokens = {
     at: atMatch[1],
     fdr: fdrMatch ? fdrMatch[1] : '',
     bl: blMatch ? blMatch[1] : 'boq_assistant-bard-web-server_20240501.00_p0',
     timestamp: Date.now()
   };
 
-  return cachedTokens;
+  await setCachedSessionTokens(tokens);
+  return tokens;
 }
 
 async function generateViaHeadless(promptText) {
@@ -411,6 +442,55 @@ async function generateViaWebTab(promptText) {
 }
 
 // ==========================================
+// RESILIENT MULTI-ENGINE FALLBACK PIPELINE
+// ==========================================
+async function executeWithFallback(engine, promptText) {
+  // 1. Try selected engine
+  try {
+    if (engine === 'nano') {
+      const reply = await generateViaNano(promptText);
+      return { reply, engine: 'Gemini Nano' };
+    }
+    if (engine === 'headless') {
+      const reply = await generateViaHeadless(promptText);
+      return { reply, engine: 'Headless Web' };
+    }
+    const reply = await generateViaWebTab(promptText);
+    return { reply, engine: 'Gemini Web Tab' };
+  } catch (primaryErr) {
+    console.warn(`[Background] Primary engine '${engine}' failed:`, primaryErr);
+
+    // 2. If headless failed, try Nano next if available
+    if (engine === 'headless') {
+      try {
+        const nanoStatus = await checkNanoStatus();
+        if (nanoStatus.available) {
+          console.log('[Background] Headless failed, falling back to Gemini Nano.');
+          const reply = await generateViaNano(promptText);
+          return { reply, engine: 'Gemini Nano (fallback)' };
+        }
+      } catch (nanoErr) {
+        console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
+      }
+    }
+
+    // 3. Fallback to Web Tab for both nano and headless
+    if (engine === 'nano' || engine === 'headless') {
+      console.log('[Background] Falling back to Gemini Web Tab.');
+      try {
+        const reply = await generateViaWebTab(promptText);
+        return { reply, engine: 'Gemini Web Tab (fallback)' };
+      } catch (tabErr) {
+        console.error('[Background] Web Tab fallback also failed:', tabErr);
+        throw new Error(`All AI generation engines failed. Primary (${engine}) error: ${primaryErr.message}. Fallback error: ${tabErr.message}`);
+      }
+    }
+
+    throw primaryErr;
+  }
+}
+
+// ==========================================
 // CENTRAL MESSAGE ROUTER
 // ==========================================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -515,37 +595,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           customInstructions: settings.customInstructions || message.payload.customInstructions
         });
 
-        let rawReply = '';
-        let usedEngine = engine;
-
-        try {
-          if (engine === 'nano') {
-            rawReply = await generateViaNano(promptText);
-          } else if (engine === 'headless') {
-            try {
-              rawReply = await generateViaHeadless(promptText);
-            } catch (headlessErr) {
-              console.warn('[Background] Headless cookie request failed, falling back to Gemini Nano:', headlessErr);
-              usedEngine = 'Gemini Nano (auto-fallback)';
-              rawReply = await generateViaNano(promptText);
-            }
-          } else {
-            rawReply = await generateViaWebTab(promptText);
-          }
-        } catch (primaryErr) {
-          console.warn(`[Background] Engine '${engine}' failed:`, primaryErr);
-          if (engine === 'nano') {
-            usedEngine = 'Web Tab (fallback)';
-            rawReply = await generateViaWebTab(promptText);
-          } else {
-            throw primaryErr;
-          }
-        }
+        const result = await executeWithFallback(engine, promptText);
 
         return sendResponse({
           success: true,
-          reply: cleanGeneratedReply(rawReply),
-          engine: usedEngine
+          reply: cleanGeneratedReply(result.reply),
+          engine: result.engine
         });
       }
 

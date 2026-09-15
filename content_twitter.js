@@ -92,15 +92,17 @@ function extractTweetContext(composerEl) {
     current = current.parentElement;
   }
 
-  // Fallback to the main tweet on the status page
-  const mainTweet = document.querySelector('article[data-testid="tweet"]');
-  if (mainTweet) {
-    const textEl = mainTweet.querySelector('div[data-testid="tweetText"]');
-    const authorEl = mainTweet.querySelector('div[data-testid="User-Name"]');
-    return {
-      text: textEl ? textEl.innerText.trim() : '',
-      author: authorEl ? extractAuthorHandle(authorEl) : ''
-    };
+  // Fallback to the main tweet only on an individual tweet status page
+  if (window.location.pathname.includes('/status/')) {
+    const mainTweet = document.querySelector('article[data-testid="tweet"]');
+    if (mainTweet) {
+      const textEl = mainTweet.querySelector('div[data-testid="tweetText"]');
+      const authorEl = mainTweet.querySelector('div[data-testid="User-Name"]');
+      return {
+        text: textEl ? textEl.innerText.trim() : '',
+        author: authorEl ? extractAuthorHandle(authorEl) : ''
+      };
+    }
   }
 
   return { text: '', author: '' };
@@ -167,11 +169,11 @@ function insertTextIntoEditor(editor, text) {
 }
 
 // Handle generating reply for a selected tone
-async function triggerAutoReply(buttonEl, toneId, composerEl) {
+async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
   const context = extractTweetContext(composerEl);
 
   if (!context.text) {
-    showToast('Could not find the tweet text to reply to. Please click inside the reply box and try again.', 'error');
+    showToast('Could not find a tweet to reply to. Open a tweet or thread to use AI Reply.', 'info');
     return;
   }
 
@@ -182,9 +184,9 @@ async function triggerAutoReply(buttonEl, toneId, composerEl) {
   }
 
   // Update button state to loading
-  const originalHtml = buttonEl.innerHTML;
-  buttonEl.classList.add('loading');
-  buttonEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ Gemini...</span>`;
+  const originalHtml = actionBtnEl.innerHTML;
+  containerEl.classList.add('loading');
+  actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ Gemini...</span>`;
 
   showToast('✦ Generating reply with Gemini...', 'info');
 
@@ -227,25 +229,43 @@ async function triggerAutoReply(buttonEl, toneId, composerEl) {
     console.error('[Twitter-AI-Reply] Generation error:', err);
     showToast(`Error: ${err.message || 'Communication failure'}`, 'error');
   } finally {
-    buttonEl.classList.remove('loading');
-    buttonEl.innerHTML = originalHtml;
+    containerEl.classList.remove('loading');
+    actionBtnEl.innerHTML = originalHtml;
   }
 }
 
-// Create the Gemini Auto Reply button element
+// Create the Gemini Auto Reply split-button element
 function createGeminiReplyElement(composerToolbar) {
   const wrapper = document.createElement('div');
   wrapper.className = 'gemini-reply-wrapper';
 
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'gemini-reply-btn';
-  button.title = 'Auto Reply with Gemini (No API Key)';
-  button.innerHTML = `
+  const splitBtn = document.createElement('div');
+  splitBtn.className = 'gemini-reply-btn';
+
+  // Primary action button (generates reply using default tone)
+  const btnMain = document.createElement('button');
+  btnMain.type = 'button';
+  btnMain.className = 'gemini-reply-action';
+  btnMain.title = 'AI Auto Reply (Click to generate with default tone)';
+  btnMain.innerHTML = `
     <span class="gemini-sparkle-icon">✦</span>
     <span>AI Reply</span>
-    <span class="gemini-arrow-icon">▾</span>
   `;
+
+  // Visual divider
+  const divider = document.createElement('div');
+  divider.className = 'gemini-reply-divider';
+
+  // Arrow trigger button (opens tone selection menu)
+  const btnArrow = document.createElement('button');
+  btnArrow.type = 'button';
+  btnArrow.className = 'gemini-reply-arrow';
+  btnArrow.title = 'Choose reply tone';
+  btnArrow.innerHTML = `<span class="gemini-arrow-icon">▾</span>`;
+
+  splitBtn.appendChild(btnMain);
+  splitBtn.appendChild(divider);
+  splitBtn.appendChild(btnArrow);
 
   // Tone dropdown menu
   const menu = document.createElement('div');
@@ -256,6 +276,8 @@ function createGeminiReplyElement(composerToolbar) {
   menuHeader.className = 'gemini-tone-header';
   menuHeader.textContent = 'Reply Tone';
   menu.appendChild(menuHeader);
+
+  const arrowSpan = btnArrow.querySelector('.gemini-arrow-icon');
 
   TONES.forEach(tone => {
     const item = document.createElement('div');
@@ -268,31 +290,48 @@ function createGeminiReplyElement(composerToolbar) {
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       menu.style.display = 'none';
-      arrow.classList.remove('open');
-      triggerAutoReply(button, tone.id, composerToolbar);
+      arrowSpan.classList.remove('open');
+      triggerAutoReply(splitBtn, btnMain, tone.id, composerToolbar);
     });
 
     menu.appendChild(item);
   });
 
-  const arrow = button.querySelector('.gemini-arrow-icon');
-
-  // Toggle dropdown on button click
-  button.addEventListener('click', (e) => {
+  // Clicking main button generates with user default tone
+  btnMain.addEventListener('click', async (e) => {
     e.stopPropagation();
-    if (button.classList.contains('loading')) return;
+    if (splitBtn.classList.contains('loading')) return;
+
+    menu.style.display = 'none';
+    arrowSpan.classList.remove('open');
+
+    let preferredTone = 'quick';
+    try {
+      const settings = await chrome.storage.local.get(['defaultTone']);
+      if (settings && settings.defaultTone) {
+        preferredTone = settings.defaultTone;
+      }
+    } catch (err) {}
+
+    triggerAutoReply(splitBtn, btnMain, preferredTone, composerToolbar);
+  });
+
+  // Clicking arrow button toggles tone menu
+  btnArrow.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (splitBtn.classList.contains('loading')) return;
 
     const isOpen = menu.style.display === 'flex';
     if (isOpen) {
       menu.style.display = 'none';
-      arrow.classList.remove('open');
+      arrowSpan.classList.remove('open');
     } else {
       // Close other open menus
       document.querySelectorAll('.gemini-tone-menu').forEach(m => m.style.display = 'none');
       document.querySelectorAll('.gemini-arrow-icon').forEach(a => a.classList.remove('open'));
 
       menu.style.display = 'flex';
-      arrow.classList.add('open');
+      arrowSpan.classList.add('open');
     }
   });
 
@@ -300,11 +339,11 @@ function createGeminiReplyElement(composerToolbar) {
   document.addEventListener('click', (e) => {
     if (!wrapper.contains(e.target)) {
       menu.style.display = 'none';
-      arrow.classList.remove('open');
+      arrowSpan.classList.remove('open');
     }
   });
 
-  wrapper.appendChild(button);
+  wrapper.appendChild(splitBtn);
   wrapper.appendChild(menu);
 
   return wrapper;

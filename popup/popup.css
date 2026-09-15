@@ -436,6 +436,51 @@ input:checked + .slider:before {
   word-break: break-word;
 }
 
+/* Check Gemini Nano Button */
+.btn-check-nano {
+  width: 100%;
+  background: rgba(29, 155, 240, 0.08);
+  color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 12px;
+}
+
+.btn-check-nano:hover {
+  background: rgba(29, 155, 240, 0.18);
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #fff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 12px rgba(2, 132, 199, 0.25);
+}
+
+.btn-check-nano:active {
+  transform: translateY(0);
+}
+
+.btn-check-nano-icon {
+  font-size: 13px;
+}
+
+.external-arrow {
+  font-size: 12px;
+  opacity: 0.8;
+  transition: transform 0.2s ease;
+}
+
+.btn-check-nano:hover .external-arrow {
+  transform: translate(2px, -2px);
+  opacity: 1;
+}
+
 /* Donate Section */
 .donate-section {
   display: flex;

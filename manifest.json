@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Twitter AI Auto Reply (Gemini Web)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Generate intelligent auto-replies on Twitter (X) using your logged-in Gemini session without any API key.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -23,7 +23,6 @@
     "storage",
     "tabs",
     "scripting",
-    "cookies",
     "offscreen",
     "declarativeNetRequest"
   ],

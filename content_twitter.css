@@ -12,26 +12,20 @@
 
 .gemini-reply-btn {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
   background: linear-gradient(135deg, #1d9bf0, #8a2be2);
-  color: #ffffff !important;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 6px 12px;
   border-radius: 9999px;
-  border: none;
-  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
   box-shadow: 0 2px 8px rgba(29, 155, 240, 0.3);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
-  outline: none;
 }
 
 .gemini-reply-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(138, 43, 226, 0.4);
-  filter: brightness(1.08);
+  filter: brightness(1.05);
 }
 
 .gemini-reply-btn:active {
@@ -39,10 +33,58 @@
 }
 
 .gemini-reply-btn.loading {
-  opacity: 0.8;
+  opacity: 0.85;
   cursor: wait;
   pointer-events: none;
   background: linear-gradient(135deg, #475569, #334155);
+}
+
+/* Primary Action (Left Side) */
+.gemini-reply-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: #ffffff !important;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 10px 6px 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+  outline: none;
+}
+
+.gemini-reply-action:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Divider */
+.gemini-reply-divider {
+  width: 1px;
+  background: rgba(255, 255, 255, 0.25);
+  margin: 4px 0;
+  align-self: stretch;
+}
+
+/* Arrow Trigger (Right Side) */
+.gemini-reply-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #ffffff !important;
+  padding: 6px 10px 6px 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+  outline: none;
+}
+
+.gemini-reply-arrow:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .gemini-sparkle-icon {
@@ -58,9 +100,9 @@
 
 .gemini-arrow-icon {
   font-size: 10px;
-  margin-left: 2px;
-  opacity: 0.8;
+  opacity: 0.85;
   transition: transform 0.2s ease;
+  display: inline-block;
 }
 
 .gemini-arrow-icon.open {

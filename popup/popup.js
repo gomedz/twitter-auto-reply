@@ -190,6 +190,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Check Gemini Nano guide button
+  const btnCheckNano = document.getElementById('btn-check-nano');
+  if (btnCheckNano) {
+    btnCheckNano.addEventListener('click', () => {
+      chrome.tabs.create({
+        url: 'https://github.com/gomedz/twitter-auto-reply/blob/main/check_gemini_nano.md'
+      });
+    });
+  }
+
   // Donate section toggle & links
   const btnDonateToggle = document.getElementById('btn-donate-toggle');
   const donateInfo = document.getElementById('donate-info');
