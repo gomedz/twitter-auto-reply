@@ -1,5 +1,7 @@
 # Twitter (X) AI Auto Reply Chrome Extension
 
+![Twitter AI Auto Reply Banner](promo_marquee_1400x560.png)
+
 Generate intelligent, contextual, and authentic auto-replies directly on **Twitter (X)** without requiring any developer API keys.
 
 ---
