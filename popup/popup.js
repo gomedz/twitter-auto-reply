@@ -177,7 +177,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       if (response && response.success) {
-        testOutput.innerHTML = `<strong>✦ [${response.engine || 'Engine'}] Reply:</strong><br>"${response.reply}"`;
+        testOutput.textContent = '';
+        const titleEl = document.createElement('strong');
+        titleEl.textContent = `✦ [${response.engine || 'Engine'}] Reply:`;
+        const brEl = document.createElement('br');
+        const replyEl = document.createElement('span');
+        replyEl.textContent = `"${response.reply}"`;
+        testOutput.appendChild(titleEl);
+        testOutput.appendChild(brEl);
+        testOutput.appendChild(replyEl);
       } else {
         testOutput.textContent = `❌ Error: ${response?.message || response?.error || 'Failed to generate response.'}`;
       }

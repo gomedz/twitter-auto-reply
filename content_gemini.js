@@ -214,7 +214,6 @@ async function clickSend() {
     sendBtn.removeAttribute('disabled');
     sendBtn.setAttribute('aria-disabled', 'false');
     sendBtn.click();
-    sendBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
     return true;
   }
 
@@ -276,13 +275,13 @@ async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
           lastText = currentText;
         }
 
-        // Completion condition: stop button is gone AND text has stabilized for 2 consecutive checks (1s)
-        if (!stopBtn && stableCount >= 2 && currentText.length > 0) {
+        // Completion condition: stop button is gone AND text has stabilized for 1 consecutive check (~250ms)
+        if (!stopBtn && stableCount >= 1 && currentText.length > 0) {
           clearInterval(checkInterval);
-          setTimeout(() => resolve(currentText), 400);
+          setTimeout(() => resolve(currentText), 150);
         }
       }
-    }, 500);
+    }, 250);
   });
 }
 

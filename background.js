@@ -67,24 +67,30 @@ chrome.runtime.onStartup.addListener(setupExtension);
 let creatingOffscreen = null;
 
 async function ensureOffscreenDocument() {
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT']
-  });
-
-  if (existingContexts && existingContexts.length > 0) {
-    return;
+  if (chrome.offscreen && typeof chrome.offscreen.hasDocument === 'function') {
+    if (await chrome.offscreen.hasDocument()) return;
+  } else if (chrome.runtime.getContexts) {
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT']
+    });
+    if (existingContexts && existingContexts.length > 0) {
+      return;
+    }
   }
 
   if (creatingOffscreen) {
     await creatingOffscreen;
   } else {
-    creatingOffscreen = chrome.offscreen.createDocument({
-      url: 'offscreen.html',
-      reasons: ['DOM_SCRAPING'],
-      justification: 'Running on-device Gemini Nano Prompt API'
-    });
-    await creatingOffscreen;
-    creatingOffscreen = null;
+    try {
+      creatingOffscreen = chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['DOM_SCRAPING'],
+        justification: 'Running on-device Gemini Nano Prompt API'
+      });
+      await creatingOffscreen;
+    } finally {
+      creatingOffscreen = null;
+    }
   }
 }
 
@@ -105,9 +111,15 @@ async function checkNanoStatus() {
 
     await ensureOffscreenDocument();
     const resp = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ target: 'offscreen', type: 'NANO_CHECK_AVAILABILITY' }, resolve);
+      chrome.runtime.sendMessage({ target: 'offscreen', type: 'NANO_CHECK_AVAILABILITY' }, (res) => {
+        if (chrome.runtime.lastError) {
+          resolve({ available: false, status: 'unavailable', error: chrome.runtime.lastError.message });
+        } else {
+          resolve(res || { available: false, status: 'unavailable', message: 'No response from offscreen document.' });
+        }
+      });
     });
-    return resp || { available: false, status: 'unavailable', message: 'No response from offscreen document.' };
+    return resp;
   } catch (err) {
     return { available: false, status: 'unavailable', error: err.message };
   }
@@ -130,12 +142,18 @@ async function generateViaNano(promptText) {
   }
 
   await ensureOffscreenDocument();
-  const resp = await new Promise((resolve) => {
+  const resp = await new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({
       target: 'offscreen',
       type: 'NANO_GENERATE_PROMPT',
       prompt: promptText
-    }, resolve);
+    }, (res) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message || 'Offscreen document communication error.'));
+      } else {
+        resolve(res);
+      }
+    });
   });
 
   if (!resp || !resp.success) {
@@ -260,7 +278,16 @@ async function generateViaHeadless(promptText) {
     throw new Error(`Headless Gemini request returned HTTP ${response.status}`);
   }
 
-  const rawText = await response.text();
+  // Stream the response body as chunks arrive instead of buffering the whole payload
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let rawText = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    rawText += decoder.decode(value, { stream: true });
+  }
+  rawText += decoder.decode(); // flush any remaining bytes
 
   // Search for longest non-code string inside quotes
   const stringRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
@@ -268,7 +295,12 @@ async function generateViaHeadless(promptText) {
   let maxLen = 0;
   let candidate = '';
   while ((m = stringRegex.exec(rawText)) !== null) {
-    const unescaped = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+    let unescaped = '';
+    try {
+      unescaped = JSON.parse(`"${m[1]}"`);
+    } catch (e) {
+      unescaped = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    }
     if (unescaped.length > maxLen && unescaped.length < 1000 && !unescaped.startsWith('http') && !unescaped.startsWith('boq_')) {
       if (!unescaped.includes('BardFrontendService') && !unescaped.includes('SNlM0e')) {
         maxLen = unescaped.length;
@@ -309,7 +341,7 @@ async function waitForGeminiTabReady(tabId, timeoutMs = 25000) {
     } catch (e) {
       // Tab loading, redirecting, or script not injected yet
     }
-    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => setTimeout(r, 100));
   }
   return false;
 }
@@ -474,7 +506,18 @@ async function executeWithFallback(engine, promptText) {
       }
     }
 
-    // 3. Fallback to Web Tab for both nano and headless
+    // 3. If nano failed, try silent Headless first before opening a browser tab
+    if (engine === 'nano') {
+      try {
+        console.log('[Background] Gemini Nano failed, attempting silent Headless fallback.');
+        const reply = await generateViaHeadless(promptText);
+        return { reply, engine: 'Headless Web (fallback)' };
+      } catch (headlessErr) {
+        console.warn('[Background] Silent Headless fallback failed:', headlessErr);
+      }
+    }
+
+    // 4. Fallback to Web Tab for both nano and headless
     if (engine === 'nano' || engine === 'headless') {
       console.log('[Background] Falling back to Gemini Web Tab.');
       try {
@@ -652,9 +695,10 @@ ${customInstructions ? `- Extra guideline: ${customInstructions}` : ''}`;
 function cleanGeneratedReply(rawText) {
   if (!rawText) return '';
   let text = rawText.trim();
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”'))) {
+  // Strip common conversational AI prefixes
+  text = text.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty )?reply:?\s*|twitter reply:?\s*|suggested reply:?\s*|reply:?\s*)/i, '').trim();
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”')) || (text.startsWith("'") && text.endsWith("'"))) {
     text = text.slice(1, -1).trim();
   }
-  text = text.replace(/^(Reply:\s*|Here's a reply:\s*|Twitter reply:\s*)/i, '').trim();
   return text;
 }

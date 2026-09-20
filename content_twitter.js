@@ -84,10 +84,13 @@ function extractTweetContext(composerEl) {
     if (prevTweet) {
       const textEl = prevTweet.querySelector('div[data-testid="tweetText"]');
       const authorEl = prevTweet.querySelector('div[data-testid="User-Name"]');
-      return {
-        text: textEl ? textEl.innerText.trim() : '',
-        author: authorEl ? extractAuthorHandle(authorEl) : ''
-      };
+      const text = textEl ? textEl.innerText.trim() : '';
+      if (text) {
+        return {
+          text: text,
+          author: authorEl ? extractAuthorHandle(authorEl) : ''
+        };
+      }
     }
     current = current.parentElement;
   }
@@ -117,55 +120,122 @@ function extractAuthorHandle(authorEl) {
 
 // Locate the DraftJS contenteditable editor associated with this composer
 function findAssociatedEditor(composerEl) {
-  // Check within the dialog or inline section
-  const container = composerEl.closest('div[role="dialog"]')
-    || composerEl.closest('div[data-testid^="tweetTextarea_"]')
-    || composerEl.closest('div[data-testid="toolBar"]')?.parentElement
-    || composerEl.parentElement;
-
-  if (container) {
-    const editor = container.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
+  // 1. Check if inside a modal reply dialog
+  const modal = composerEl.closest('div[role="dialog"]');
+  if (modal) {
+    const editor = modal.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
     if (editor) return editor;
   }
 
+  // 2. Look in parent containers up the DOM tree (up to 8 levels)
+  let parent = composerEl.parentElement;
+  let levels = 0;
+  while (parent && parent !== document.body && levels < 8) {
+    const editor = parent.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
+    if (editor) return editor;
+    parent = parent.parentElement;
+    levels++;
+  }
+
+  // 3. Fallback to any visible editor on page
   return document.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
 }
 
-// Insert reply text into Twitter's DraftJS editor
+// Insert reply text into Twitter's editor.
+//
+// Strategy hierarchy:
+//   1. InputEvent('beforeinput', insertText) — goes through the editor's own
+//      event handler, updating its internal content model properly (backspace/delete
+//      work). Unlike execCommand('insertText'), there is NO parallel native DOM
+//      mutation, so the text appears only once (no doubling).
+//   2. ClipboardEvent('paste') — fallback if beforeinput is not processed.
+//   3. Direct innerText assignment — emergency fallback.
+//
+// After insertion, a deferred check verifies the text appeared and places the
+// cursor at the end with a 'selectionchange' dispatch so the editor syncs its
+// internal cursor offset from the native selection.
 function insertTextIntoEditor(editor, text) {
   if (!editor) return false;
 
   editor.focus();
 
-  // Select existing content so the reply replaces placeholder or previous text cleanly
-  const selection = window.getSelection();
-  const range = document.createRange();
-  range.selectNodeContents(editor);
-  selection.removeAllRanges();
-  selection.addRange(range);
-
-  // DraftJS properly tracks document.execCommand('insertText')
-  const success = document.execCommand('insertText', false, text);
-
-  if (!success) {
-    // Fallback: Clipboard Event
-    try {
-      const clipboardData = new DataTransfer();
-      clipboardData.setData('text/plain', text);
-      const pasteEvent = new ClipboardEvent('paste', {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: clipboardData
-      });
-      editor.dispatchEvent(pasteEvent);
-    } catch (e) {
-      editor.innerText = text;
-    }
+  // Select any existing content so new text replaces it
+  const sel = window.getSelection();
+  if (sel) {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    // Let the editor sync its internal selection state from the native selection
+    document.dispatchEvent(new Event('selectionchange'));
   }
 
-  editor.dispatchEvent(new Event('input', { bubbles: true }));
-  editor.dispatchEvent(new Event('change', { bubbles: true }));
+  // Primary: beforeinput(insertText) — editor processes this and updates its
+  // internal content model. No native DOM side-effect = no doubling.
+  editor.dispatchEvent(new InputEvent('beforeinput', {
+    inputType: 'insertText',
+    data: text,
+    bubbles: true,
+    cancelable: true
+  }));
+  editor.dispatchEvent(new InputEvent('input', {
+    inputType: 'insertText',
+    data: text,
+    bubbles: true
+  }));
+
+  // Deferred: verify the text actually appeared. If the editor didn't handle
+  // the beforeinput event, fall back to paste, then innerText.
+  setTimeout(() => {
+    const content = (editor.textContent || '').trim();
+    const probe = text.substring(0, Math.min(20, text.length));
+
+    if (!content.includes(probe)) {
+      // beforeinput wasn't handled — try ClipboardEvent paste
+      editor.focus();
+      document.execCommand('selectAll', false, null);
+      let inserted = false;
+      try {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', text);
+        editor.dispatchEvent(new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: dt
+        }));
+        inserted = true;
+      } catch (e) {}
+
+      if (!inserted) {
+        // Last resort: direct DOM write
+        editor.innerText = text;
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        editor.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+
+    // Place cursor at end after React has re-rendered
+    placeCursorAtEnd(editor);
+  }, 120);
+
   return true;
+}
+
+// Move cursor to end of editor and sync the editor's internal selection state.
+function placeCursorAtEnd(editor) {
+  try {
+    editor.focus();
+    const sel = window.getSelection();
+    if (!sel) return;
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false); // collapse to end
+    sel.removeAllRanges();
+    sel.addRange(range);
+    // The editor framework listens to document 'selectionchange' to sync its
+    // internal cursor offset from the native selection.
+    document.dispatchEvent(new Event('selectionchange'));
+  } catch (e) {}
 }
 
 // Handle generating reply for a selected tone
@@ -223,7 +293,11 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
       showToast('✦ Reply generated and inserted!', 'success');
     } else {
       showToast('Could not auto-fill reply box. Text copied to clipboard!', 'info');
-      await navigator.clipboard.writeText(replyText);
+      try {
+        await navigator.clipboard.writeText(replyText);
+      } catch (e) {
+        console.warn('[Twitter-AI-Reply] Clipboard write failed:', e);
+      }
     }
   } catch (err) {
     console.error('[Twitter-AI-Reply] Generation error:', err);
@@ -289,6 +363,7 @@ function createGeminiReplyElement(composerToolbar) {
 
     item.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (splitBtn.classList.contains('loading')) return;
       menu.style.display = 'none';
       arrowSpan.classList.remove('open');
       triggerAutoReply(splitBtn, btnMain, tone.id, composerToolbar);

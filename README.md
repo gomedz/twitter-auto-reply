@@ -107,11 +107,11 @@ Anyone can install and run this extension locally in under 2 minutes:
 
 ---
 
-## ☕ Donate
+## ☕ Support Us
 
 **If you found this project helpful, consider buying me a coffee!**
-   - Trakteer ID : [teer.id/gomedz](https://teer.id/gomedz)
-   - Buy me a coffee : [buymeacoffee.com/gomed](https://www.buymeacoffee.com/gomed)
+   - Trakteer ID : [teer.id/gmd.inc](https://teer.id/gmd.inc)
+   - Buy me a coffee : [buymeacoffee.com/gmd.inc](https://www.buymeacoffee.com/gmd.inc)
    - Cypto : 0x8cD08357a2a56ed90D0137AE7bee324bd772B90d
 
 ---
