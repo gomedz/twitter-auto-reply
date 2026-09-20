@@ -4,6 +4,22 @@ All notable changes to the **Twitter AI Auto Reply** extension will be documente
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-20
+
+### Fixed
+- **Twitter Reply Box Double-Insert**: Replaced `execCommand('insertText')` with an `InputEvent('beforeinput')` insertion strategy to prevent the Twitter (Draft.js) editor from duplicating inserted reply text.
+- **Backspace & Delete Editing**: Resolved editor selection and cursor synchronization issues (`selectionchange`), restoring full backspace and delete functionality after AI reply insertion.
+- **Popup XSS Mitigation**: Replaced `innerHTML` rendering with safe DOM node creation in popup generation test output.
+- **Gemini Automation Reliability**: Removed redundant click dispatch in `content_gemini.js` and improved fallback clipboard error handling in `content_twitter.js`.
+
+### Performance & Optimizations
+- **Faster Headless Engine**: Streamlined response body parsing for direct Gemini calls, reducing latency by 1–3 seconds per generation.
+- **Optimized Web Tab Engine**: Reduced tab readiness polling (400ms → 100ms), response wait checks (500ms → 250ms), and DOM resolution delays, cutting ~1.2s off Gemini Web tab generations.
+
+### UI & UX
+- **Rebranding**: Updated popup "Donate" drawer to "Support Us" with refreshed Trakteer and Buy Me a Coffee links.
+- **Popup Layout**: Fixed layout and alignment for support items and button icons.
+
 ---
 
 ## [1.0.1] - 2026-09-15
