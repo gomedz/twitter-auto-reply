@@ -1,8 +1,8 @@
-# Twitter (X) AI Auto Reply Chrome Extension
-
+# Twitter (X) AI Assistant: Reply & Post Creator
+ 
 ![Twitter AI Auto Reply Banner](promo_marquee_1400x560.png)
 
-Generate intelligent, contextual, and authentic auto-replies directly on **Twitter (X)** without requiring any developer API keys.
+Generate intelligent auto-replies and craft viral tweets directly on **Twitter (X)** without requiring any paid API keys.
 
 ---
 
@@ -79,23 +79,29 @@ Anyone can install and run this extension locally in under 2 minutes:
 3. In the top-right corner, turn ON the **Developer mode** toggle.
 4. In the top-left corner, click the **Load unpacked** button.
 5. In the file picker, select the folder containing `manifest.json` (the extracted/cloned folder).
-6. The extension **"Twitter AI Auto Reply (Gemini Web)"** is now installed! Pin it to your Chrome toolbar for quick access.
+6. The extension **"Twitter AI Assistant (Reply & Post Creator)"** is now installed! Pin it to your Chrome toolbar for quick access.
 
 ---
 
 ## 🚀 How to Use on Twitter (X)
 
-1. **Configure Your Engine**:
-   - Click the extension icon in your Chrome toolbar.
-   - Choose your preferred AI Engine (e.g. **⚡ Gemini Nano**).
-   - Customize your default tone (*Quick*, *Agree*, *Thoughtful*, *Witty*, *Question*, *Counter-Point*) or add custom instructions (e.g., *"Keep it under 150 characters"*).
-2. **Go to Twitter (X)**:
-   - Open [x.com](https://x.com) or [twitter.com](https://twitter.com).
-   - Click the **Reply** icon on any tweet or click into an inline reply box.
-3. **Generate & Reply**:
-   - You will see the **"✦ AI Reply ▾"** button directly inside the composer toolbar right next to the Reply button.
-   - Click **AI Reply** (or click the arrow `▾` to choose a specific tone).
-   - The AI will craft the reply and automatically insert it into your Twitter reply box, activating Twitter's native **Reply** button ready for sending!
+### 1. Auto-Replying to Tweets ("✦ AI Reply")
+- Open any tweet or thread on [x.com](https://x.com).
+- Click into the reply box or open the reply dialog.
+- The button will automatically show **"✦ AI Reply ▾"**.
+- Click **AI Reply** to generate with your default tone, or click `▾` to choose a specific tone (*Quick*, *Agree*, *Thoughtful*, *Witty*, *Question*, *Counter-Point*).
+- The AI crafts the response and auto-inserts it directly into the reply box!
+
+### 2. Creating New Posts ("✦ AI Post")
+- Click into the *"What is happening?!"* box at the top of your feed, or click the sidebar **Post** button.
+- The button automatically adapts to **"✦ AI Post ▾"**.
+- **Draft Polish Mode**: Type your raw thoughts, bullet points, or draft into the box, then click **AI Post** (or pick a style like *Engaging Hook* or *Insight & Value*) to polish and optimize it.
+- **Topic Prompt Mode**: If the box is empty, clicking **AI Post** pops up a prompt bar asking for your topic or idea! Enter your thought and hit **Generate ✦** to have it typed into the box.
+
+### 3. Standalone Popup Post Creator
+- Click the extension icon in Chrome and switch to the **✍️ Post Creator** tab.
+- Enter any topic or prompt, select your preferred post style, and click **Generate Tweet ✦**.
+- Preview, edit, copy to clipboard, or click **Post on X ↗** to open a new tweet ready to send!
 
 ---
 

@@ -13,8 +13,8 @@
       <div class="brand">
         <div class="brand-icon">✦</div>
         <div class="brand-info">
-          <h1>Twitter AI Reply</h1>
-          <span class="version-tag">Multi-Engine &bull; No API Key</span>
+          <h1>Twitter AI Assistant</h1>
+          <span class="version-tag">Reply & Post Creator &bull; No API Key</span>
         </div>
       </div>
       <div id="status-badge" class="status-badge checking" title="Click to refresh">
@@ -23,109 +23,199 @@
       </div>
     </header>
 
-    <!-- Engine Selector -->
-    <section class="card engine-card">
-      <div class="section-title">Choose AI Engine</div>
-      <div class="engine-options">
-        <label class="engine-option active" id="opt-nano">
-          <input type="radio" name="engine" value="nano" checked>
-          <div class="engine-content">
-            <div class="engine-header">
-              <span class="engine-name">⚡ Gemini Nano</span>
-              <span class="badge badge-recommended">0 Tabs &bull; Local GPU</span>
+    <!-- Tabs Navigation -->
+    <nav class="popup-tabs">
+      <button type="button" class="tab-btn active" id="tab-btn-settings">⚙️ Settings</button>
+      <button type="button" class="tab-btn" id="tab-btn-creator">✍️ Post Creator</button>
+    </nav>
+
+    <!-- Tab 1: Settings Panel -->
+    <div id="panel-settings" class="tab-panel active">
+      <!-- Engine Selector -->
+      <section class="card engine-card">
+        <div class="section-title">Choose AI Engine</div>
+        <div class="engine-options">
+          <label class="engine-option active" id="opt-nano">
+            <input type="radio" name="engine" value="nano" checked>
+            <div class="engine-content">
+              <div class="engine-header">
+                <span class="engine-name">⚡ Gemini Nano</span>
+                <span class="badge badge-recommended">0 Tabs &bull; Local GPU</span>
+              </div>
+              <p class="engine-desc">Runs inside Chrome. 100% offline, local, private, and zero tabs.</p>
             </div>
-            <p class="engine-desc">Runs inside Chrome. 100% offline, local, private, and zero tabs.</p>
-          </div>
-        </label>
+          </label>
 
-        <label class="engine-option" id="opt-headless">
-          <input type="radio" name="engine" value="headless">
-          <div class="engine-content">
-            <div class="engine-header">
-              <span class="engine-name">🌐 Headless Web</span>
-              <span class="badge">0 Tabs &bull; Cookies</span>
+          <label class="engine-option" id="opt-headless">
+            <input type="radio" name="engine" value="headless">
+            <div class="engine-content">
+              <div class="engine-header">
+                <span class="engine-name">🌐 Headless Web</span>
+                <span class="badge">0 Tabs &bull; Cookies</span>
+              </div>
+              <p class="engine-desc">Silent background web request using your Google account cookies.</p>
             </div>
-            <p class="engine-desc">Silent background web request using your Google account cookies.</p>
-          </div>
-        </label>
+          </label>
 
-        <label class="engine-option" id="opt-webtab">
-          <input type="radio" name="engine" value="web_tab">
-          <div class="engine-content">
-            <div class="engine-header">
-              <span class="engine-name">🗂️ Gemini Web Tab</span>
-              <span class="badge">Tab Bridge</span>
+          <label class="engine-option" id="opt-webtab">
+            <input type="radio" name="engine" value="web_tab">
+            <div class="engine-content">
+              <div class="engine-header">
+                <span class="engine-name">🗂️ Gemini Web Tab</span>
+                <span class="badge">Tab Bridge</span>
+              </div>
+              <p class="engine-desc">Automates real gemini.google.com tab with optional auto-close.</p>
             </div>
-            <p class="engine-desc">Automates real gemini.google.com tab with optional auto-close.</p>
-          </div>
-        </label>
-      </div>
-    </section>
-
-    <!-- Session Status Card -->
-    <section class="card session-card" id="session-card">
-      <div class="session-info">
-        <div class="session-title" id="session-title">Engine Status</div>
-        <p class="session-desc" id="session-desc">Checking engine connection...</p>
-      </div>
-      <button id="btn-open-gemini" class="btn btn-secondary" style="display: none;">
-        <span>Open Gemini</span>
-        <span class="external-icon">&nearr;</span>
-      </button>
-    </section>
-
-    <!-- Preferences Section -->
-    <section class="settings-section">
-      <div class="section-title">Preferences</div>
-
-      <!-- Default Tone -->
-      <div class="form-group">
-        <label for="default-tone">Default Reply Tone</label>
-        <select id="default-tone" class="form-select">
-          <option value="quick">⚡ Quick & Natural</option>
-          <option value="agree">👍 Agree & Supportive</option>
-          <option value="thoughtful">💡 Thoughtful Insight</option>
-          <option value="funny">😂 Witty & Humorous</option>
-          <option value="question">❓ Ask a Question</option>
-          <option value="debate">🔥 Counter-Point</option>
-        </select>
-      </div>
-
-      <!-- Custom Instructions -->
-      <div class="form-group">
-        <label for="custom-instructions">Custom Prompt Instructions</label>
-        <textarea id="custom-instructions" class="form-textarea" rows="2" placeholder="e.g. Keep reply under 200 characters. No hashtags."></textarea>
-      </div>
-
-      <!-- Tab Auto-Close Setting (for web_tab mode) -->
-      <div class="setting-row" id="row-autoclose">
-        <div class="setting-label">
-          <span>Auto-close Gemini tab</span>
-          <small>Automatically close tab after reply is generated</small>
+          </label>
         </div>
-        <label class="switch">
-          <input type="checkbox" id="auto-close-toggle" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-    </section>
+      </section>
 
-    <!-- Test Reply Box -->
-    <section class="card test-card">
-      <div class="section-title">Test Selected Engine</div>
-      <div class="test-input-wrapper">
-        <input type="text" id="test-input" class="form-input" placeholder="Enter a sample tweet...">
-        <button id="btn-test" class="btn btn-primary">Generate</button>
-      </div>
-      <div id="test-output" class="test-output" style="display: none;"></div>
-    </section>
+      <!-- Session Status Card -->
+      <section class="card session-card" id="session-card">
+        <div class="session-info">
+          <div class="session-title" id="session-title">Engine Status</div>
+          <p class="session-desc" id="session-desc">Checking engine connection...</p>
+        </div>
+        <button id="btn-open-gemini" class="btn btn-secondary" style="display: none;">
+          <span>Open Gemini</span>
+          <span class="external-icon">&nearr;</span>
+        </button>
+      </section>
 
-    <!-- Check Gemini Nano Button -->
-    <button type="button" id="btn-check-nano" class="btn btn-check-nano" title="How to check & enable Gemini Nano in Chrome">
-      <span class="btn-check-nano-icon">⚡</span>
-      <span>Check Gemini Nano</span>
-      <span class="external-arrow">&nearr;</span>
-    </button>
+      <!-- Preferences Section -->
+      <section class="settings-section">
+        <div class="section-title">Preferences</div>
+
+        <!-- Default Tone -->
+        <div class="form-group">
+          <label for="default-tone">Default Reply Tone</label>
+          <select id="default-tone" class="form-select">
+            <option value="quick">⚡ Quick & Natural</option>
+            <option value="agree">👍 Agree & Supportive</option>
+            <option value="thoughtful">💡 Thoughtful Insight</option>
+            <option value="funny">😂 Witty & Humorous</option>
+            <option value="question">❓ Ask a Question</option>
+            <option value="debate">🔥 Counter-Point</option>
+          </select>
+        </div>
+
+        <!-- Default Post Style -->
+        <div class="form-group">
+          <label for="default-post-style">Default Post Style</label>
+          <select id="default-post-style" class="form-select">
+            <option value="engaging">🚀 Engaging Hook</option>
+            <option value="insight">💡 Insight & Value</option>
+            <option value="announcement">📣 Announcement</option>
+            <option value="hottake">🔥 Bold Hot Take</option>
+            <option value="witty">😂 Witty & Relatable</option>
+            <option value="question">❓ Discussion Starter</option>
+            <option value="thread">🧵 Thread Opener</option>
+          </select>
+        </div>
+
+        <!-- Custom Instructions -->
+        <div class="form-group">
+          <label for="custom-instructions">Custom Prompt Instructions</label>
+          <textarea id="custom-instructions" class="form-textarea" rows="2" placeholder="e.g. Keep output under 200 characters. No hashtags."></textarea>
+          <div class="instructions-actions">
+            <button type="button" id="btn-save-instructions" class="btn btn-secondary btn-sm" title="Save custom prompt instructions">
+              <span>💾 Save</span>
+            </button>
+            <button type="button" id="btn-reset-instructions" class="btn btn-text btn-sm" title="Reset instructions to default">
+              <span>↺ Reset to Default</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab Auto-Close Setting (for web_tab mode) -->
+        <div class="setting-row" id="row-autoclose">
+          <div class="setting-label">
+            <span>Auto-close Gemini tab</span>
+            <small>Automatically close tab after reply is generated</small>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="auto-close-toggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Floating HUD Setting -->
+        <div class="setting-row" id="row-hud">
+          <div class="setting-label">
+            <span>Floating HUD on Twitter</span>
+            <small>Interactive floating quick-access dock on Twitter (X)</small>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="floating-hud-toggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Test Reply Box -->
+      <section class="card test-card">
+        <div class="section-title">Test Selected Engine</div>
+        <div class="test-input-wrapper">
+          <input type="text" id="test-input" class="form-input" placeholder="Enter a sample tweet...">
+          <button id="btn-test" class="btn btn-primary">Generate</button>
+        </div>
+        <div id="test-output" class="test-output" style="display: none;"></div>
+      </section>
+
+      <!-- Check Gemini Nano Button -->
+      <button type="button" id="btn-check-nano" class="btn btn-check-nano" title="How to check & enable Gemini Nano in Chrome">
+        <span class="btn-check-nano-icon">⚡</span>
+        <span>Check Gemini Nano</span>
+        <span class="external-arrow">&nearr;</span>
+      </button>
+    </div>
+
+    <!-- Tab 2: Post Creator Panel -->
+    <div id="panel-creator" class="tab-panel">
+      <section class="card post-creator-card">
+        <div class="section-title">Craft a Tweet with AI</div>
+        
+        <div class="form-group">
+          <label for="post-topic-input">Topic, thought, or rough draft</label>
+          <textarea id="post-topic-input" class="form-textarea" rows="3" placeholder="e.g. 3 lessons from launching a developer tool in 2026..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="post-style-select">Post Style</label>
+          <select id="post-style-select" class="form-select">
+            <option value="engaging">🚀 Engaging Hook</option>
+            <option value="insight">💡 Insight & Value</option>
+            <option value="announcement">📣 Announcement</option>
+            <option value="hottake">🔥 Bold Hot Take</option>
+            <option value="witty">😂 Witty & Relatable</option>
+            <option value="question">❓ Discussion Starter</option>
+            <option value="thread">🧵 Thread Opener</option>
+          </select>
+        </div>
+
+        <button type="button" id="btn-generate-post" class="btn btn-primary btn-block">
+          <span id="btn-generate-post-text">Generate Tweet ✦</span>
+        </button>
+
+        <!-- Post Output Area -->
+        <div id="post-output-container" class="post-output-container" style="display: none;">
+          <div class="post-output-header">
+            <span class="post-output-title">✦ Generated Tweet</span>
+            <span id="post-char-count" class="post-char-count">0 / 280</span>
+          </div>
+          <div id="post-output-text" class="post-output-text" contenteditable="true" spellcheck="false"></div>
+          <div id="post-output-error" class="post-output-error" style="display: none;"></div>
+          <div class="post-output-actions" id="post-output-actions">
+            <button type="button" id="btn-copy-post" class="btn btn-secondary btn-sm">
+              <span>📋 Copy</span>
+            </button>
+            <button type="button" id="btn-open-x-post" class="btn btn-primary btn-sm">
+              <span>Post on X &nearr;</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <!-- Donate Section -->
     <section class="donate-section">

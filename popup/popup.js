@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const engineOptions = document.querySelectorAll('.engine-option');
   const rowAutoclose = document.getElementById('row-autoclose');
   const autoCloseToggle = document.getElementById('auto-close-toggle');
+  const floatingHudToggle = document.getElementById('floating-hud-toggle');
 
   const defaultToneSelect = document.getElementById('default-tone');
   const customInstructionsEl = document.getElementById('custom-instructions');
@@ -19,6 +20,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   const testInput = document.getElementById('test-input');
   const testOutput = document.getElementById('test-output');
   const saveStatus = document.getElementById('save-status');
+
+  // Tabs navigation
+  const tabBtnSettings = document.getElementById('tab-btn-settings');
+  const tabBtnCreator = document.getElementById('tab-btn-creator');
+  const panelSettings = document.getElementById('panel-settings');
+  const panelCreator = document.getElementById('panel-creator');
+
+  function switchTab(tab) {
+    if (tab === 'creator') {
+      tabBtnCreator.classList.add('active');
+      tabBtnSettings.classList.remove('active');
+      panelCreator.classList.add('active');
+      panelSettings.classList.remove('active');
+    } else {
+      tabBtnSettings.classList.add('active');
+      tabBtnCreator.classList.remove('active');
+      panelSettings.classList.add('active');
+      panelCreator.classList.remove('active');
+    }
+  }
+
+  if (tabBtnSettings && tabBtnCreator) {
+    tabBtnSettings.addEventListener('click', () => switchTab('settings'));
+    tabBtnCreator.addEventListener('click', () => switchTab('creator'));
+  }
+
+  // Preferences elements
+  const defaultPostStyleSelect = document.getElementById('default-post-style');
+
+  // Post Creator elements
+  const postTopicInput = document.getElementById('post-topic-input');
+  const postStyleSelect = document.getElementById('post-style-select');
+  const btnGeneratePost = document.getElementById('btn-generate-post');
+  const btnGeneratePostText = document.getElementById('btn-generate-post-text');
+  const postOutputContainer = document.getElementById('post-output-container');
+  const postOutputText = document.getElementById('post-output-text');
+  const postOutputError = document.getElementById('post-output-error');
+  const postOutputActions = document.getElementById('post-output-actions');
+  const postCharCount = document.getElementById('post-char-count');
+  const btnCopyPost = document.getElementById('btn-copy-post');
+  const btnOpenXPost = document.getElementById('btn-open-x-post');
 
   function flashSaved() {
     saveStatus.classList.add('show');
@@ -29,16 +71,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settings = await chrome.storage.local.get([
     'engine',
     'defaultTone',
+    'defaultPostStyle',
     'customInstructions',
-    'autoCloseTab'
+    'autoCloseTab',
+    'showFloatingHud'
   ]);
 
   const currentEngine = settings.engine || 'nano';
   setEngineUI(currentEngine);
 
   if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
+  if (settings.defaultPostStyle && defaultPostStyleSelect) defaultPostStyleSelect.value = settings.defaultPostStyle;
+  if (settings.defaultPostStyle && postStyleSelect) postStyleSelect.value = settings.defaultPostStyle;
   if (settings.customInstructions !== undefined) customInstructionsEl.value = settings.customInstructions;
   if (settings.autoCloseTab !== undefined) autoCloseToggle.checked = settings.autoCloseTab;
+  if (floatingHudToggle) {
+    floatingHudToggle.checked = settings.showFloatingHud !== false;
+  }
 
   // Engine selection handler
   function setEngineUI(engineValue) {
@@ -84,6 +133,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     flashSaved();
   });
 
+  if (defaultPostStyleSelect) {
+    defaultPostStyleSelect.addEventListener('change', async () => {
+      await chrome.storage.local.set({ defaultPostStyle: defaultPostStyleSelect.value });
+      if (postStyleSelect) postStyleSelect.value = defaultPostStyleSelect.value;
+      flashSaved();
+    });
+  }
+
+  const DEFAULT_CUSTOM_INSTRUCTIONS = 'Keep output concise, under 260 characters. No hashtags. No quotation marks. Be natural, authentic, and human.';
+  const btnSaveInstructions = document.getElementById('btn-save-instructions');
+  const btnResetInstructions = document.getElementById('btn-reset-instructions');
+
   let saveTimer = null;
   customInstructionsEl.addEventListener('input', () => {
     if (saveTimer) clearTimeout(saveTimer);
@@ -93,10 +154,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 400);
   });
 
+  if (btnSaveInstructions) {
+    btnSaveInstructions.addEventListener('click', async () => {
+      const val = customInstructionsEl.value.trim();
+      await chrome.storage.local.set({ customInstructions: val });
+      flashSaved();
+
+      const originalHtml = btnSaveInstructions.innerHTML;
+      btnSaveInstructions.innerHTML = '<span>✓ Saved!</span>';
+      btnSaveInstructions.classList.add('btn-success');
+      setTimeout(() => {
+        btnSaveInstructions.innerHTML = originalHtml;
+        btnSaveInstructions.classList.remove('btn-success');
+      }, 1500);
+    });
+  }
+
+  if (btnResetInstructions) {
+    btnResetInstructions.addEventListener('click', async () => {
+      customInstructionsEl.value = DEFAULT_CUSTOM_INSTRUCTIONS;
+      await chrome.storage.local.set({ customInstructions: DEFAULT_CUSTOM_INSTRUCTIONS });
+      flashSaved();
+
+      const originalHtml = btnResetInstructions.innerHTML;
+      btnResetInstructions.innerHTML = '<span>✓ Reset!</span>';
+      btnResetInstructions.style.color = 'var(--success)';
+      setTimeout(() => {
+        btnResetInstructions.innerHTML = originalHtml;
+        btnResetInstructions.style.color = '';
+      }, 1500);
+    });
+  }
+
   autoCloseToggle.addEventListener('change', async () => {
     await chrome.storage.local.set({ autoCloseTab: autoCloseToggle.checked });
     flashSaved();
   });
+
+  if (floatingHudToggle) {
+    floatingHudToggle.addEventListener('change', async () => {
+      const isEnabled = floatingHudToggle.checked;
+      await chrome.storage.local.set({ showFloatingHud: isEnabled });
+      flashSaved();
+    });
+  }
 
   // Check connection status of selected engine
   async function checkStatus() {
@@ -197,6 +298,118 @@ document.addEventListener('DOMContentLoaded', async () => {
       checkStatus();
     }
   });
+
+  // Post Creator Output char counter
+  function updateCharCount() {
+    if (!postOutputText || !postCharCount) return;
+    const len = postOutputText.innerText.trim().length;
+    postCharCount.textContent = `${len} / 280`;
+    if (len > 280) {
+      postCharCount.classList.add('over-limit');
+    } else {
+      postCharCount.classList.remove('over-limit');
+    }
+  }
+
+  if (postOutputText) {
+    postOutputText.addEventListener('input', updateCharCount);
+  }
+
+  // Generate Tweet button in Post Creator
+  if (btnGeneratePost) {
+    btnGeneratePost.addEventListener('click', async () => {
+      const topic = postTopicInput ? postTopicInput.value.trim() : '';
+      if (!topic) {
+        if (postTopicInput) postTopicInput.focus();
+        return;
+      }
+
+      btnGeneratePost.disabled = true;
+      if (btnGeneratePostText) btnGeneratePostText.textContent = 'Generating ✦...';
+      if (postOutputContainer) postOutputContainer.style.display = 'block';
+      if (postOutputError) postOutputError.style.display = 'none';
+      if (postOutputText) {
+        postOutputText.style.display = 'block';
+        postOutputText.textContent = 'Crafting tweet with active AI engine...';
+      }
+      if (postOutputActions) postOutputActions.style.display = 'flex';
+      updateCharCount();
+
+      try {
+        const response = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({
+            type: 'GENERATE_POST',
+            payload: {
+              topicOrDraft: topic,
+              isDraft: false,
+              style: postStyleSelect ? postStyleSelect.value : 'engaging'
+            }
+          }, resolve);
+        });
+
+        if (response && response.success) {
+          if (postOutputError) postOutputError.style.display = 'none';
+          if (postOutputText) {
+            postOutputText.style.display = 'block';
+            postOutputText.innerText = response.post;
+          }
+          if (postOutputActions) postOutputActions.style.display = 'flex';
+          updateCharCount();
+        } else {
+          const errMsg = response?.message || response?.error || 'Failed to generate post.';
+          if (postOutputError) {
+            postOutputError.style.display = 'block';
+            postOutputError.textContent = `❌ ${errMsg}`;
+          }
+          if (postOutputText) postOutputText.style.display = 'none';
+          if (postOutputActions) postOutputActions.style.display = 'none';
+          if (postCharCount) postCharCount.textContent = '0 / 280';
+        }
+      } catch (err) {
+        if (postOutputError) {
+          postOutputError.style.display = 'block';
+          postOutputError.textContent = `❌ Error: ${err.message}`;
+        }
+        if (postOutputText) postOutputText.style.display = 'none';
+        if (postOutputActions) postOutputActions.style.display = 'none';
+        if (postCharCount) postCharCount.textContent = '0 / 280';
+      } finally {
+        btnGeneratePost.disabled = false;
+        if (btnGeneratePostText) btnGeneratePostText.textContent = 'Generate Tweet ✦';
+        checkStatus();
+      }
+    });
+  }
+
+  // Copy Post to Clipboard
+  if (btnCopyPost) {
+    btnCopyPost.addEventListener('click', async () => {
+      if (!postOutputText) return;
+      const text = postOutputText.innerText.trim();
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        const originalHtml = btnCopyPost.innerHTML;
+        btnCopyPost.innerHTML = '<span>✓ Copied!</span>';
+        setTimeout(() => {
+          btnCopyPost.innerHTML = originalHtml;
+        }, 2000);
+      } catch (e) {
+        console.error('Clipboard copy failed:', e);
+      }
+    });
+  }
+
+  // Open & Post directly on Twitter/X
+  if (btnOpenXPost) {
+    btnOpenXPost.addEventListener('click', () => {
+      if (!postOutputText) return;
+      const text = postOutputText.innerText.trim();
+      if (!text) return;
+      const url = `https://x.com/compose/post?text=${encodeURIComponent(text)}`;
+      chrome.tabs.create({ url });
+    });
+  }
 
   // Check Gemini Nano guide button
   const btnCheckNano = document.getElementById('btn-check-nano');

@@ -127,19 +127,44 @@
 .gemini-tone-menu {
   position: absolute;
   bottom: calc(100% + 8px);
-  left: 0;
+  right: 0;
+  left: auto;
   background: rgba(22, 24, 28, 0.96);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.2);
   padding: 6px;
-  min-width: 180px;
+  min-width: 190px;
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: 165px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  white-space: nowrap;
   display: flex;
   flex-direction: column;
   gap: 2px;
   z-index: 10000;
   animation: gemini-fade-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Custom sleek vertical scrollbar / slider */
+.gemini-tone-menu::-webkit-scrollbar {
+  width: 5px;
+}
+
+.gemini-tone-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.gemini-tone-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+}
+
+.gemini-tone-menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.45);
 }
 
 /* Light mode support */
@@ -148,6 +173,12 @@
     background: rgba(255, 255, 255, 0.98);
     border: 1px solid rgba(0, 0, 0, 0.1);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-header {
+    background: rgba(255, 255, 255, 0.98);
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-menu::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.25);
   }
   body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-item {
     color: #0f1419;
@@ -169,12 +200,18 @@
 }
 
 .gemini-tone-header {
+  position: sticky;
+  top: -6px;
+  background: rgba(22, 24, 28, 0.98);
+  backdrop-filter: blur(12px);
+  z-index: 2;
+  margin: -6px -6px 4px -6px;
+  padding: 8px 10px 4px 10px;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: #71767b;
-  padding: 6px 10px 4px 10px;
 }
 
 .gemini-tone-item {
@@ -262,3 +299,721 @@
     transform: translateY(0);
   }
 }
+
+/* Menu Divider & Prompt Quick Action */
+.gemini-tone-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 6px;
+}
+
+.gemini-tone-item-prompt {
+  color: #1d9bf0 !important;
+  font-weight: 600 !important;
+}
+
+.gemini-tone-item-prompt:hover {
+  background: rgba(29, 155, 240, 0.15) !important;
+}
+
+/* Floating Topic Prompt Popover for New Posts */
+.gemini-post-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  background: rgba(15, 20, 25, 0.96);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(29, 155, 240, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 12px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: gemini-fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.gemini-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 2px;
+}
+
+.gemini-popover-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #e7e9ea;
+}
+
+.gemini-popover-close {
+  background: transparent;
+  border: none;
+  color: #71767b;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.gemini-popover-close:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.gemini-popover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gemini-popover-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #ffffff;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  line-height: 1.4;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.gemini-popover-input:focus {
+  border-color: #1d9bf0;
+  box-shadow: 0 0 0 2px rgba(29, 155, 240, 0.25);
+}
+
+.gemini-popover-input::placeholder {
+  color: #71767b;
+}
+
+.gemini-popover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gemini-popover-select {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #e7e9ea;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 8px;
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.gemini-popover-select option {
+  background: #16181c;
+  color: #ffffff;
+}
+
+.gemini-popover-select:focus {
+  border-color: #1d9bf0;
+}
+
+.gemini-popover-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #1d9bf0, #8a2be2);
+  border: none;
+  border-radius: 9999px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.gemini-popover-submit:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.gemini-popover-submit:active {
+  transform: translateY(0);
+}
+
+/* Light Theme overrides for Popover */
+@media (prefers-color-scheme: light) {
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-post-popover {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(29, 155, 240, 0.3);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-popover-title {
+    color: #0f1419;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-popover-input {
+    background: #f7f9f9;
+    color: #0f1419;
+    border-color: #cfd9de;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-popover-select {
+    background: #f7f9f9;
+    color: #0f1419;
+    border-color: #cfd9de;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-popover-select option {
+    background: #ffffff;
+    color: #0f1419;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-divider {
+    background: rgba(0, 0, 0, 0.08);
+  }
+}
+
+/* ========================================================
+   Interactive Floating HUD Styles
+   ======================================================== */
+#gemini-floating-hud {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  width: max-content !important;
+  max-width: calc(100vw - 32px) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  user-select: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#gemini-floating-hud:not([style*="top"]) {
+  bottom: 84px !important;
+  right: 24px !important;
+}
+
+/* Collapsed Pill */
+.gemini-hud-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  width: max-content !important;
+  gap: 6px !important;
+  background: rgba(22, 24, 28, 0.95) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  border-radius: 9999px !important;
+  padding: 7px 14px 7px 8px !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6), 0 0 16px rgba(29, 155, 240, 0.35) !important;
+  cursor: grab !important;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
+}
+
+.gemini-hud-pill:hover {
+  border-color: rgba(29, 155, 240, 0.6) !important;
+  box-shadow: 0 12px 32px rgba(29, 155, 240, 0.45) !important;
+}
+
+/* Engine chip bar — used inside the expanded card body */
+.gemini-hud-engine-chips {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  flex-wrap: nowrap !important;
+}
+
+.gemini-hud-engine-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  padding: 4px 0 6px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+  margin-bottom: 4px !important;
+}
+
+.gemini-hud-engine-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 3px 10px !important;
+  border-radius: 9999px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+  cursor: pointer !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+  user-select: none !important;
+}
+
+.gemini-hud-engine-chip:hover {
+  color: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.gemini-hud-engine-chip.active {
+  color: #ffffff !important;
+  background: rgba(29, 155, 240, 0.35) !important;
+  border-color: rgba(29, 155, 240, 0.6) !important;
+}
+
+.gemini-hud-engine-chip.active.nano-active {
+  background: rgba(138, 43, 226, 0.4) !important;
+  border-color: rgba(138, 43, 226, 0.7) !important;
+}
+
+.gemini-hud-engine-chip.active.headless-active {
+  background: rgba(0, 186, 124, 0.3) !important;
+  border-color: rgba(0, 186, 124, 0.6) !important;
+}
+
+.gemini-hud-engine-chip.active.web-active {
+  background: rgba(29, 155, 240, 0.35) !important;
+  border-color: rgba(29, 155, 240, 0.6) !important;
+}
+
+/* Expand button on the pill */
+.gemini-hud-pill-expand-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: transparent !important;
+  border: none !important;
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-size: 11px !important;
+  padding: 2px 4px !important;
+  cursor: pointer !important;
+  border-radius: 50% !important;
+  transition: all 0.15s ease !important;
+  margin-left: 2px !important;
+}
+
+.gemini-hud-pill-expand-btn:hover {
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.gemini-hud-pill-drag {
+  color: #71767b;
+  font-size: 13px;
+  cursor: grab;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.gemini-hud-pill-drag:hover {
+  color: #e7e9ea;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.gemini-hud-pill-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gemini-hud-pill-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e7e9ea;
+}
+
+.gemini-hud-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffd400;
+  box-shadow: 0 0 6px currentColor;
+  transition: background-color 0.3s ease;
+  display: inline-block;
+}
+
+.gemini-hud-status-dot.connected {
+  background: #00ba7c;
+  color: #00ba7c;
+}
+
+.gemini-hud-status-dot.disconnected {
+  background: #f4212e;
+  color: #f4212e;
+}
+
+/* Expanded Card */
+.gemini-hud-card {
+  display: flex;
+  flex-direction: column;
+  width: 310px;
+  background: rgba(22, 24, 28, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+  animation: gemini-hud-pop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes gemini-hud-pop {
+  from { opacity: 0; transform: scale(0.94) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Header */
+.gemini-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: grab;
+}
+
+.gemini-hud-header:active {
+  cursor: grabbing;
+}
+
+.gemini-hud-drag-handle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+.gemini-hud-drag-icon {
+  color: #71767b;
+  font-size: 13px;
+}
+
+.gemini-hud-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.gemini-hud-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gemini-hud-icon-btn {
+  background: transparent;
+  border: none;
+  color: #71767b;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.gemini-hud-icon-btn:hover {
+  color: #e7e9ea;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Body */
+.gemini-hud-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gemini-hud-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  font-size: 11px;
+  color: #8b98a5;
+}
+
+.gemini-hud-status-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gemini-hud-row {
+  display: flex;
+  gap: 8px;
+}
+
+.gemini-hud-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gemini-hud-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #71767b;
+}
+
+.gemini-hud-select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #e7e9ea;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 6px;
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.gemini-hud-select:focus {
+  border-color: #1d9bf0;
+}
+
+.gemini-hud-select option {
+  background: #16181c;
+  color: #ffffff;
+}
+
+/* Custom Prompt Instructions */
+.gemini-hud-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gemini-hud-instructions-input-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.gemini-hud-instructions-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 11px;
+  padding: 6px 50px 6px 8px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 40px;
+  max-height: 90px;
+  outline: none;
+  line-height: 1.35;
+  transition: border-color 0.15s ease;
+}
+
+.gemini-hud-instructions-textarea:focus {
+  border-color: #1d9bf0;
+}
+
+.gemini-hud-instructions-textarea::placeholder {
+  color: #71767b;
+}
+
+.gemini-hud-save-btn {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  background: #1d9bf0;
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  cursor: pointer;
+  line-height: 1.2;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.gemini-hud-save-btn:hover {
+  background: #1a8cd8;
+  transform: scale(1.03);
+}
+
+.gemini-hud-save-btn:active {
+  transform: scale(0.97);
+}
+
+.gemini-hud-save-btn.saved {
+  background: #00ba7c;
+  color: #ffffff;
+}
+
+.gemini-hud-drafter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gemini-hud-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 12px;
+  padding: 6px 8px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 48px;
+  max-height: 120px;
+  outline: none;
+  line-height: 1.4;
+  transition: border-color 0.15s ease;
+}
+
+.gemini-hud-textarea:focus {
+  border-color: #1d9bf0;
+}
+
+.gemini-hud-textarea::placeholder {
+  color: #71767b;
+}
+
+.gemini-hud-draft-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #1d9bf0, #8a2be2);
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.gemini-hud-draft-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.gemini-hud-draft-btn:active {
+  transform: translateY(0);
+}
+
+.gemini-hud-draft-btn.loading {
+  opacity: 0.8;
+  cursor: wait;
+  pointer-events: none;
+}
+
+/* Visibility states */
+#gemini-floating-hud.gemini-hud-collapsed .gemini-hud-card {
+  display: none !important;
+}
+
+#gemini-floating-hud.gemini-hud-collapsed .gemini-hud-pill {
+  display: flex !important;
+}
+
+#gemini-floating-hud.gemini-hud-expanded .gemini-hud-pill {
+  display: none !important;
+}
+
+#gemini-floating-hud.gemini-hud-expanded .gemini-hud-card {
+  display: flex !important;
+}
+
+/* Light Theme Overrides for HUD */
+@media (prefers-color-scheme: light) {
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-pill {
+    background: rgba(255, 255, 255, 0.96);
+    border-color: rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-pill-text {
+    color: #0f1419;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-card {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(0, 0, 0, 0.1);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-header {
+    background: rgba(0, 0, 0, 0.03);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-title {
+    color: #0f1419;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-status-bar {
+    background: rgba(0, 0, 0, 0.04);
+    color: #536471;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-select {
+    background: #f7f9f9;
+    color: #0f1419;
+    border-color: #cfd9de;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-select option {
+    background: #ffffff;
+    color: #0f1419;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-instructions {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.06);
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-instructions-textarea {
+    background: #f7f9f9;
+    color: #0f1419;
+    border-color: #cfd9de;
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-drafter {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.06);
+  }
+  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-textarea {
+    background: #f7f9f9;
+    color: #0f1419;
+    border-color: #cfd9de;
+  }
+}
+

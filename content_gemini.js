@@ -28,9 +28,12 @@ const SEND_BUTTON_SELECTORS = [
 // Selectors for stop generation button (visible while streaming)
 const STOP_BUTTON_SELECTORS = [
   'button[aria-label*="Stop response" i]',
+  'button[aria-label*="Stop generating" i]',
+  'button[aria-label*="Stop streaming" i]',
   'button[aria-label*="Stop" i]',
   '.stop-button',
-  'button[mattooltip*="Stop" i]'
+  'button[mattooltip*="Stop" i]',
+  '[data-test-id="stop-button"]'
 ];
 
 // Selectors for response containers
@@ -238,6 +241,7 @@ async function clickSend() {
 async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
   const startTime = Date.now();
   let hasStartedStreaming = false;
+  let sawStopBtn = false;
   let lastText = '';
   let stableCount = 0;
 
@@ -259,6 +263,10 @@ async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
       const responses = findElements(RESPONSE_SELECTORS);
       const currentCount = responses.length;
 
+      if (stopBtn) {
+        sawStopBtn = true;
+      }
+
       if (stopBtn || currentCount > initialResponseCount) {
         hasStartedStreaming = true;
       }
@@ -275,8 +283,12 @@ async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
           lastText = currentText;
         }
 
-        // Completion condition: stop button is gone AND text has stabilized for 1 consecutive check (~250ms)
-        if (!stopBtn && stableCount >= 1 && currentText.length > 0) {
+        // Completion condition:
+        // - If we saw the stop button and now it's gone: wait for 2 stable checks (~500ms)
+        // - If we never saw the stop button: wait for 4 stable checks (~1000ms) to guard against packet jitter
+        const requiredStableChecks = sawStopBtn ? 2 : 4;
+
+        if (!stopBtn && stableCount >= requiredStableChecks && currentText.length > 0) {
           clearInterval(checkInterval);
           setTimeout(() => resolve(currentText), 150);
         }

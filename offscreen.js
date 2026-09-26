@@ -10,13 +10,16 @@ async function checkNanoAvailability() {
         expectedInputs: [{ type: "text", languages: ["en"] }],
         expectedOutputs: [{ type: "text", languages: ["en"] }]
       });
+      const isReady = availability === 'readily' || availability === 'available';
+      const isSupported = availability !== 'no' && availability !== 'unavailable';
       return {
-        available: availability !== 'unavailable',
+        available: isSupported,
+        isReady: isReady,
         status: availability,
         api: 'LanguageModel'
       };
     } catch (e) {
-      return { available: true, status: 'ready', api: 'LanguageModel' };
+      return { available: true, isReady: true, status: 'ready', api: 'LanguageModel' };
     }
   }
 
@@ -42,11 +45,13 @@ async function checkNanoAvailability() {
 }
 
 // Generate prompt with Gemini Nano
-async function runNanoPrompt(promptText) {
+async function runNanoPrompt(promptText, customSystemPrompt = null) {
+  const systemContent = customSystemPrompt || 'You are an authentic Twitter (X) assistant. Keep tweets and replies concise, under 260 characters, natural, no hashtags, no quotes.';
+
   if (typeof LanguageModel !== 'undefined') {
     const session = await LanguageModel.create({
       initialPrompts: [
-        { role: 'system', content: 'You are an authentic Twitter reply assistant. Keep replies concise, under 260 characters, no hashtags, no quotes.' }
+        { role: 'system', content: systemContent }
       ]
     });
     try {
@@ -59,7 +64,7 @@ async function runNanoPrompt(promptText) {
 
   if (typeof window.ai !== 'undefined' && window.ai.languageModel) {
     const session = await window.ai.languageModel.create({
-      systemPrompt: 'You are an authentic Twitter reply assistant. Keep replies concise, under 260 characters, no hashtags, no quotes.'
+      systemPrompt: systemContent
     });
     try {
       const reply = await session.prompt(promptText);
@@ -84,7 +89,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'NANO_GENERATE_PROMPT') {
     (async () => {
       try {
-        const reply = await runNanoPrompt(message.prompt);
+        const reply = await runNanoPrompt(message.prompt, message.systemPrompt);
         sendResponse({ success: true, reply });
       } catch (err) {
         console.error('[Offscreen] Nano generation error:', err);

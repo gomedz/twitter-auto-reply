@@ -10,9 +10,11 @@ const GEMINI_URL = 'https://gemini.google.com/app';
 const DEFAULT_SETTINGS = {
   engine: 'nano', // 'nano' | 'headless' | 'web_tab'
   defaultTone: 'quick',
-  customInstructions: 'Keep reply concise, under 260 characters. No hashtags. No quotation marks around the reply. Be natural and conversational.',
+  defaultPostStyle: 'engaging',
+  customInstructions: 'Keep output concise, under 260 characters. No hashtags. No quotation marks. Be natural, authentic, and human.',
   autoOpenGemini: true,
-  autoCloseTab: true
+  autoCloseTab: true,
+  showFloatingHud: true
 };
 
 // Initialize settings & declarative rules on install / startup
@@ -103,9 +105,16 @@ async function checkNanoStatus() {
           expectedInputs: [{ type: "text", languages: ["en"] }],
           expectedOutputs: [{ type: "text", languages: ["en"] }]
         });
-        return { available: avail !== 'unavailable', status: avail, api: 'LanguageModel (Worker)' };
+        const isReady = avail === 'readily' || avail === 'available';
+        const isSupported = avail !== 'no' && avail !== 'unavailable';
+        return {
+          available: isSupported,
+          isReady: isReady,
+          status: avail,
+          api: 'LanguageModel (Worker)'
+        };
       } catch (e) {
-        return { available: true, status: 'ready', api: 'LanguageModel (Worker)' };
+        return { available: true, isReady: true, status: 'ready', api: 'LanguageModel (Worker)' };
       }
     }
 
@@ -113,24 +122,32 @@ async function checkNanoStatus() {
     const resp = await new Promise((resolve) => {
       chrome.runtime.sendMessage({ target: 'offscreen', type: 'NANO_CHECK_AVAILABILITY' }, (res) => {
         if (chrome.runtime.lastError) {
-          resolve({ available: false, status: 'unavailable', error: chrome.runtime.lastError.message });
+          resolve({ available: false, isReady: false, status: 'unavailable', error: chrome.runtime.lastError.message });
         } else {
-          resolve(res || { available: false, status: 'unavailable', message: 'No response from offscreen document.' });
+          resolve(res || { available: false, isReady: false, status: 'unavailable', message: 'No response from offscreen document.' });
         }
       });
     });
     return resp;
   } catch (err) {
-    return { available: false, status: 'unavailable', error: err.message };
+    return { available: false, isReady: false, status: 'unavailable', error: err.message };
   }
 }
 
 // Generate via Gemini Nano
-async function generateViaNano(promptText) {
+async function generateViaNano(promptText, customInstructions = '') {
+  let systemContent = 'You are an authentic Twitter (X) assistant. Keep tweets and replies concise, under 260 characters, natural, no hashtags, no quotes.';
+  if (customInstructions) {
+    systemContent += ` ABSOLUTE MANDATORY RULES (override everything else, no exceptions): ${customInstructions}`;
+  }
+  if (hasNoEmojiInstruction(customInstructions)) {
+    systemContent += ' Absolutely NO emojis or emoticons under any circumstances. Plain text only.';
+  }
+
   if (typeof LanguageModel !== 'undefined') {
     const session = await LanguageModel.create({
       initialPrompts: [
-        { role: 'system', content: 'You are an authentic Twitter reply assistant. Keep replies concise, under 260 characters, no hashtags, no quotes.' }
+        { role: 'system', content: systemContent }
       ]
     });
     try {
@@ -146,7 +163,8 @@ async function generateViaNano(promptText) {
     chrome.runtime.sendMessage({
       target: 'offscreen',
       type: 'NANO_GENERATE_PROMPT',
-      prompt: promptText
+      prompt: promptText,
+      systemPrompt: systemContent
     }, (res) => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message || 'Offscreen document communication error.'));
@@ -289,11 +307,15 @@ async function generateViaHeadless(promptText) {
   }
   rawText += decoder.decode(); // flush any remaining bytes
 
-  // Search for longest non-code string inside quotes
+  // Search for longest non-code string inside quotes that is NOT part of the prompt echo
   const stringRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
   let m;
   let maxLen = 0;
   let candidate = '';
+  
+  // Extract a signature of the prompt to filter out any echoed prompt chunks
+  const promptSignature = promptText.length > 40 ? promptText.substring(0, 40) : promptText;
+
   while ((m = stringRegex.exec(rawText)) !== null) {
     let unescaped = '';
     try {
@@ -301,11 +323,25 @@ async function generateViaHeadless(promptText) {
     } catch (e) {
       unescaped = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
     }
-    if (unescaped.length > maxLen && unescaped.length < 1000 && !unescaped.startsWith('http') && !unescaped.startsWith('boq_')) {
-      if (!unescaped.includes('BardFrontendService') && !unescaped.includes('SNlM0e')) {
-        maxLen = unescaped.length;
-        candidate = unescaped;
-      }
+
+    if (
+      unescaped.length > maxLen &&
+      unescaped.length < 4000 &&
+      !unescaped.startsWith('http') &&
+      !unescaped.startsWith('boq_') &&
+      !unescaped.includes('BardFrontendService') &&
+      !unescaped.includes('SNlM0e') &&
+      !unescaped.includes('FdrFJe') &&
+      !unescaped.includes('cfb2h') &&
+      !unescaped.includes('assistant.lamda') &&
+      !unescaped.includes('generic') &&
+      !unescaped.includes('MANDATORY USER RULES') &&
+      !unescaped.includes('You are crafting an authentic Twitter') &&
+      !unescaped.includes('You are an elite Twitter') &&
+      !unescaped.includes(promptSignature)
+    ) {
+      maxLen = unescaped.length;
+      candidate = unescaped;
     }
   }
 
@@ -476,11 +512,11 @@ async function generateViaWebTab(promptText) {
 // ==========================================
 // RESILIENT MULTI-ENGINE FALLBACK PIPELINE
 // ==========================================
-async function executeWithFallback(engine, promptText) {
+async function executeWithFallback(engine, promptText, customInstructions = '') {
   // 1. Try selected engine
   try {
     if (engine === 'nano') {
-      const reply = await generateViaNano(promptText);
+      const reply = await generateViaNano(promptText, customInstructions);
       return { reply, engine: 'Gemini Nano' };
     }
     if (engine === 'headless') {
@@ -498,7 +534,7 @@ async function executeWithFallback(engine, promptText) {
         const nanoStatus = await checkNanoStatus();
         if (nanoStatus.available) {
           console.log('[Background] Headless failed, falling back to Gemini Nano.');
-          const reply = await generateViaNano(promptText);
+          const reply = await generateViaNano(promptText, customInstructions);
           return { reply, engine: 'Gemini Nano (fallback)' };
         }
       } catch (nanoErr) {
@@ -633,16 +669,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'GENERATE_REPLY') {
         const settings = await chrome.storage.local.get(['engine', 'customInstructions']);
         const engine = settings.engine || 'nano';
+        const customInstructions = settings.customInstructions || message.payload?.customInstructions || '';
         const promptText = buildGeminiPrompt({
           ...message.payload,
-          customInstructions: settings.customInstructions || message.payload.customInstructions
+          customInstructions
         });
 
-        const result = await executeWithFallback(engine, promptText);
+        const result = await executeWithFallback(engine, promptText, customInstructions);
 
         return sendResponse({
           success: true,
-          reply: cleanGeneratedReply(result.reply),
+          reply: cleanGeneratedReply(result.reply, customInstructions),
+          engine: result.engine
+        });
+      }
+
+      // 4. Generate New Post (Supports All 3 Engines with Smooth Auto-Fallback)
+      if (message.type === 'GENERATE_POST') {
+        const settings = await chrome.storage.local.get(['engine', 'customInstructions']);
+        const engine = settings.engine || 'nano';
+        const customInstructions = settings.customInstructions || message.payload?.customInstructions || '';
+        const promptText = buildGeminiPostPrompt({
+          ...message.payload,
+          customInstructions
+        });
+
+        const result = await executeWithFallback(engine, promptText, customInstructions);
+
+        return sendResponse({
+          success: true,
+          post: cleanGeneratedPost(result.reply, customInstructions),
           engine: result.engine
         });
       }
@@ -661,7 +717,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Prompt Builder
+// Helper: check if custom instructions request no emojis
+function hasNoEmojiInstruction(instructions) {
+  if (!instructions) return false;
+  return /(?:no|zero|without|avoid|don'?t\s+use|do\s+not\s+use|never\s+use|free\s+of|stop\s+using|disallow)\s+emojis?/i.test(instructions);
+}
+
+// Helper: check if custom instructions request no hashtags
+function hasNoHashtagInstruction(instructions) {
+  if (!instructions) return false;
+  return /(?:no|zero|without|avoid|don'?t\s+use|do\s+not\s+use|never\s+use|free\s+of|stop\s+using|disallow)\s+hashtags?/i.test(instructions);
+}
+
+// Prompt Builder for Replies
 function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions }) {
   const toneDescriptions = {
     quick: 'natural, friendly, and relevant',
@@ -674,8 +742,14 @@ function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions })
 
   const selectedTone = toneDescriptions[tone] || toneDescriptions.quick;
   const authorMention = tweetAuthor ? ` by @${tweetAuthor}` : '';
+  const noEmoji = hasNoEmojiInstruction(customInstructions);
+  const noHashtags = hasNoHashtagInstruction(customInstructions);
 
-  return `You are crafting an authentic Twitter (X) reply.
+  const customBlock = customInstructions
+    ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${customInstructions}\n\n`
+    : '';
+
+  return `${customBlock}You are crafting an authentic Twitter (X) reply.
 
 Tweet being replied to${authorMention}:
 """
@@ -683,16 +757,18 @@ ${tweetText}
 """
 
 Tone: ${selectedTone}.
-Instructions:
+Strict Instructions:
 - Write ONLY the exact text of the reply.
 - Under 260 characters.
 - Do NOT wrap in quotes.
-- Do NOT include hashtags or intro phrases like "Here is a reply:".
-${customInstructions ? `- Extra guideline: ${customInstructions}` : ''}`;
+- Do NOT include intro phrases like "Here is a reply:".
+${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.' : ''}
+${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).' : '- Do NOT include hashtags.'}
+${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
 }
 
-// Cleaner
-function cleanGeneratedReply(rawText) {
+// Cleaner for Replies
+function cleanGeneratedReply(rawText, customInstructions = '') {
   if (!rawText) return '';
   let text = rawText.trim();
   // Strip common conversational AI prefixes
@@ -700,5 +776,100 @@ function cleanGeneratedReply(rawText) {
   if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”')) || (text.startsWith("'") && text.endsWith("'"))) {
     text = text.slice(1, -1).trim();
   }
+
+  // Programmatic enforcement if user requested no emoji
+  if (hasNoEmojiInstruction(customInstructions)) {
+    text = text.replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '').replace(/\s+([,.!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  // Programmatic enforcement if user requested no hashtags
+  if (hasNoHashtagInstruction(customInstructions)) {
+    text = text.replace(/#[A-Za-z0-9_]+/g, '').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  return text;
+}
+
+// Prompt Builder for New Posts
+function buildGeminiPostPrompt({ topicOrDraft, isDraft, style, customInstructions }) {
+  const styleDescriptions = {
+    engaging: 'highly engaging, punchy, with a strong curiosity hook in the first line that grabs immediate attention',
+    insight: 'informative, valuable, and actionable thought leadership or life/tech lessons',
+    announcement: 'celebratory, exciting, and clear for a product launch, milestone, or major update',
+    hottake: 'bold, thought-provoking, and persuasive with a contrarian or fresh angle',
+    witty: 'clever, humorous, relatable, and casual with modern internet wit',
+    question: 'an intriguing open-ended question designed to spark high-volume replies and discussions',
+    thread: 'a compelling hook opening tweet designed to introduce a multi-part thread'
+  };
+
+  const selectedStyle = styleDescriptions[style] || styleDescriptions.engaging;
+  const noEmoji = hasNoEmojiInstruction(customInstructions);
+  const noHashtags = hasNoHashtagInstruction(customInstructions);
+
+  const customBlock = customInstructions
+    ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${customInstructions}\n\n`
+    : '';
+
+  if (isDraft) {
+    return `${customBlock}You are an elite Twitter (X) creator. Rewrite, polish, and optimize the following rough draft into a high-performing standalone tweet.
+
+Draft tweet:
+"""
+${topicOrDraft}
+"""
+
+Target Style: ${selectedStyle}.
+Strict Instructions:
+- Output ONLY the final polished tweet text.
+- Under 260 characters total.
+- Maintain the original core message and intent.
+- Ensure natural conversational cadence, strong opening, and clean line breaks if needed.
+- Do NOT wrap in quotes.
+- Do NOT include preambles like "Here is a tweet:" or "Revised:".
+${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.' : ''}
+${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).' : '- Do NOT include hashtags unless explicitly asked.'}
+${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+  }
+
+  return `${customBlock}You are an elite Twitter (X) creator. Write an authentic, high-performing standalone tweet on the given topic or idea.
+
+Topic / Idea:
+"""
+${topicOrDraft}
+"""
+
+Target Style: ${selectedStyle}.
+Strict Instructions:
+- Output ONLY the final tweet text.
+- Under 260 characters total.
+- Punchy first line (strong hook).
+- Natural, conversational human tone (avoid corporate jargon or generic influencer clichés).
+- Do NOT wrap in quotes.
+- Do NOT include preambles like "Here is a tweet:" or "Tweet:".
+${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.' : ''}
+${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).' : '- Do NOT include hashtags unless explicitly asked.'}
+${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+}
+
+// Cleaner for New Posts
+function cleanGeneratedPost(rawText, customInstructions = '') {
+  if (!rawText) return '';
+  let text = rawText.trim();
+  // Strip common conversational AI prefixes
+  text = text.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty |viral |polished )?(?:post|tweet):?\s*|(?:suggested )?(?:post|tweet):?\s*|revised:?\s*)/i, '').trim();
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1).trim();
+  }
+
+  // Programmatic enforcement if user requested no emoji
+  if (hasNoEmojiInstruction(customInstructions)) {
+    text = text.replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '').replace(/\s+([,.!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  // Programmatic enforcement if user requested no hashtags
+  if (hasNoHashtagInstruction(customInstructions)) {
+    text = text.replace(/#[A-Za-z0-9_]+/g, '').replace(/\s{2,}/g, ' ').trim();
+  }
+
   return text;
 }
