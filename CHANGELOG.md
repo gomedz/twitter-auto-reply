@@ -27,7 +27,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 - **Google Gemini Cloud REST API Engine**: Direct official REST integration with Google Generative Language API.
   - Zero browser tabs required, ultra-fast latency, and maximum stability.
-  - Multi-model selection: `gemini-1.5-flash` (recommended default), `gemini-2.0-flash`, and `gemini-1.5-pro`.
+  - Multi-model selection: `gemini-3.1-flash-lite` (default), `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`.
   - Secure local API key storage with masked input, eye visibility toggle, and instant key verification test button.
   - On-page Floating HUD support with dedicated `Cloud API` status chip and dynamic badge indicator.
 - **Intelligent Engine Fallback**: Automatically cascades across Cloud API, Gemini Nano, Headless, and Web Tab engines to guarantee generation uptime.
