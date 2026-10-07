@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — 𝕏 (Twitter) Auto Reply &amp; Post Creator No API</title>
+  
+  <!-- Primary Meta Tags -->
+  <meta name="title" content="Privacy Policy — 𝕏 (Twitter) Auto Reply &amp; Post Creator No API">
+  <meta name="description" content="Privacy Policy for Twitter AI Assistant. 100% client-side, zero third-party servers, zero telemetry, no credential collection.">
+  <meta name="theme-color" content="#090a0f">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/icon-48.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/icon-16.png">
+
+  <!-- Google Fonts: Plus Jakarta Sans & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/animations.css">
+  <link rel="stylesheet" href="styles/components.css">
+
+  <style>
+    .privacy-page-header {
+      padding-top: calc(var(--nav-height) + 50px);
+      padding-bottom: 40px;
+      text-align: center;
+    }
+
+    .privacy-content-card {
+      max-width: 840px;
+      margin: 0 auto 80px auto;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xl);
+      padding: 48px;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .privacy-tldr-box {
+      background: rgba(190, 142, 242, 0.08);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 40px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .privacy-tldr-icon {
+      font-size: 24px;
+      flex-shrink: 0;
+      color: var(--accent-purple);
+    }
+
+    .privacy-tldr-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--accent-purple-light);
+      margin-bottom: 6px;
+    }
+
+    .privacy-tldr-desc {
+      font-size: 0.9375rem;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+
+    .privacy-section-block {
+      margin-bottom: 36px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .privacy-section-block:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+
+    .privacy-heading {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .privacy-text {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 14px;
+    }
+
+    .privacy-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .privacy-list li {
+      position: relative;
+      padding-left: 24px;
+      font-size: 0.9375rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .privacy-list li::before {
+      content: '•';
+      position: absolute;
+      left: 8px;
+      top: 0;
+      color: var(--accent-purple);
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    .code-tag {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--accent-purple-light);
+    }
+
+    .privacy-nav-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+      font-size: 0.9375rem;
+      font-weight: 600;
+      margin-bottom: 24px;
+      transition: color var(--transition-fast);
+    }
+
+    .privacy-nav-back:hover {
+      color: var(--accent-purple);
+    }
+
+    @media (max-width: 768px) {
+      .privacy-content-card {
+        padding: 28px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="navbar" role="banner">
+    <div class="container nav-container">
+      <a href="index.html" class="nav-brand" aria-label="Home">
+        <div class="nav-brand-logo">
+          <img src="assets/icons/icon-48.png" alt="𝕏 AI Reply Logo" width="30" height="30">
+        </div>
+        <div class="nav-brand-text">
+          <span>Twitter AI Assistant</span>
+          <span class="nav-brand-tag">No API</span>
+        </div>
+      </a>
+
+      <nav class="nav-links" aria-label="Privacy Navigation">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="index.html#how-it-works" class="nav-link">How it works</a>
+        <a href="index.html#engines" class="nav-link">AI Engines</a>
+        <a href="index.html#features" class="nav-link">Features</a>
+        <a href="index.html#faq" class="nav-link">FAQ</a>
+      </nav>
+
+      <div class="nav-actions">
+        <a href="https://github.com/gomedz/twitter-auto-reply" target="_blank" rel="noopener noreferrer" class="nav-github-link" aria-label="GitHub Repository" title="View Source on GitHub">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+        </a>
+
+        <a href="https://chromewebstore.google.com/detail/bgpgjojfnfoepfedcinphjmmgkkffhpo" target="_blank" rel="noopener noreferrer" class="btn btn-primary" id="nav-cta-btn">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8 0-1.85.63-3.55 1.69-4.9L9.36 13.5c.34.88 1.06 1.57 1.96 1.88L8.6 20.17C9.66 20.35 10.8 20.4 12 20.4zm0-15.9c2.14 0 4.09.84 5.54 2.21l-3.83 6.64c-.45-.29-.98-.45-1.55-.45h-6.2c1.23-2.06 3.49-3.4 6.04-3.4zm5.8 4.25c1.37 1.45 2.2 3.4 2.2 5.55 0 2.23-.9 4.25-2.36 5.71l-3.69-6.39c.27-.47.42-1.02.42-1.61 0-.96-.43-1.82-1.1-2.4l4.53-7.86z"/>
+          </svg>
+          <span>Add to Chrome</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="privacy-page-header">
+      <div class="container">
+        <a href="index.html" class="privacy-nav-back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          <span>Back to Home</span>
+        </a>
+        <div class="section-tag">
+          <span class="icon">🛡️</span>
+          <span>Trust &amp; Transparency</span>
+        </div>
+        <h1 class="section-title">
+          Privacy <span class="text-gradient">Policy</span>
+        </h1>
+        <p class="section-subtitle">
+          Last updated: September 2026 • Extension Version 1.2.1
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <article class="privacy-content-card">
+          
+          <!-- TL;DR Summary Box -->
+          <div class="privacy-tldr-box">
+            <div class="privacy-tldr-icon">✦</div>
+            <div>
+              <h2 class="privacy-tldr-title">The Plain English Summary (TL;DR)</h2>
+              <p class="privacy-tldr-desc">
+                <strong>𝕏 (Twitter) Auto Reply &amp; Post Creator No API</strong> is 100% client-side. We do not operate external proxy servers, databases, or tracking telemetry. We never see, collect, store, or sell your private tweets, passwords, or personal data. All requests execute directly between your browser and Google Gemini, or locally on your machine via Gemini Nano.
+              </p>
+            </div>
+          </div>
+
+          <!-- Section 1 -->
+          <div class="privacy-section-block">
+            <h2 class="privacy-heading">1. Introduction</h2>
+            <p class="privacy-text">
+              This Privacy Policy explains how <strong>𝕏 (Twitter) Auto Reply &amp; Post Creator No API</strong> ("the Extension", "we", "our") handles your data when using the extension on Twitter/𝕏 (<a href="https://x.com" target="_blank" rel="noopener noreferrer" style="color: var(--accent-purple);">x.com</a> and <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" style="color: var(--accent-purple);">twitter.com</a>) and Google Gemini (<a href="https://gemini.google.com" target="_blank" rel="noopener noreferrer" style="color: var(--accent-purple);">gemini.google.com</a>).
+            </p>
+            <p class="privacy-text">
+              We strongly value digital privacy and believe productivity tools should work for you without turning your personal workflow into commercial telemetry.
+            </p>
+          </div>
+
+          <!-- Section 2 -->
+          <div class="privacy-section-block">
+            <h2 class="privacy-heading">2. Data Processing Architecture</h2>
+            <p class="privacy-text">
+              The Extension operates exclusively within your local Chrome browser sandbox using three available AI engine architectures:
+            </p>
+            <ul class="privacy-list">
+              <li>
+                <strong>Option 1 — Gemini Nano (On-Device AI):</strong> When enabled, inference is performed 100% locally on your computer's GPU or NPU via Chrome's built-in Prompt API (<span class="code-tag">window.ai</span>). Zero data is transmitted over the internet; everything remains on your local hardware.
+              </li>
+              <li>
+                <strong>Option 2 — Headless Direct (Google Cookie Session):</strong> When you click "AI Reply", the text of the selected tweet is sent directly from your browser to Google Gemini's endpoint using your active Google login session cookies. No intermediary server is used.
+              </li>
+              <li>
+                <strong>Option 3 — Web Tab Automation:</strong> Operates an automated tab on <span class="code-tag">gemini.google.com/app</span>. An optional auto-close setting ensures temporary tabs are closed immediately once the response is inserted.
+              </li>
+            </ul>
+          </div>
+
+          <!-- Section 3 -->
+          <div class="privacy-section-block">
+            <h2 class="privacy-heading">3. Information We Do NOT Collect</h2>
+            <p class="privacy-text">
+              Unlike many browser extensions, we do NOT collect or store:
+            </p>
+            <ul class="privacy-list">
+              <li>No personal identity information (name, email, IP address, Google account credentials).</li>
+              <li>No Twitter account credentials, auth tokens, passwords, or direct messages.</li>
+              <li>No tweet history, browsing history, read feed logs, or keystrokes.</li>
+              <li>No analytics or telemetry (no Google Analytics, Mixpanel, PostHog, or tracking beacons).</li>
+            </ul>
+          </div>
+
+          <!-- Section 4 -->
+          <div class="privacy-section-block">
+            <h2 class="privacy-heading">4. Local Data Storage</h2>
+            <p class="privacy-text">
+              The Extension utilizes Chrome's native local storage API (<span class="code-tag">chrome.storage.local</span>) strictly to remember your preferences between sessions:
+            </p>
+            <ul class="privacy-list">
+              <li>Your preferred AI engine choice (Gemini Nano, Headless Direct, or Web Tab).</li>
+              <li>Your selected default reply tone (e.g. Quick, Thoughtful, Witty).</li>
+              <li>Your custom prompt instructions (such as language preference or character limits).</li>
+              <li>UI preferences (such as auto-close tab toggle).</li>
+            </ul>
+            <p class="privacy-text">
+              This data is saved strictly on your local computer and is never synced to external servers or accessible to third parties.
+            </p>
+          </div>
+
+          <!-- Section 5 -->
+          <div class="privacy-section-block">
+            <h2 class="privacy-heading">5. Chrome Web Store &amp; Manifest V3 Permissions</h2>
+            <p class="privacy-text">
+              In accordance with Google Chrome Web Store policies, every permission requested in <span class="code-tag">manifest.json</span> has a specific, narrow purpose:
+            </p>
+            <ul class="privacy-list">
+              <li><span class="code-tag">storage</span>: Required to save your settings and prompt rules locally.</li>
+              <li><span class="code-tag">tabs &amp; scripting</span>: Required to inject the "✦ AI Reply" button into Twitter/𝕏 tabs and manage the Gemini generation tab.</li>
+              <li><span class="code-tag">offscreen</span>: Required by Chrome Manifest V3 to execute clipboard and DOM bridge operations without intrusive windows.</li>
+              <li><span class="code-tag">declarativeNetRequest</span>: Allows the Headless Direct engine to attach your existing Google session credentials to background Gemini requests.</li>
+              <li><span class="code-tag">host_permissions</span> (<span class="code-tag">twitter.com</span>, <span class="code-tag">x.com</span>, <span class="code-tag">gemini.google.com</span>): Strictly scoped to the platforms where the extension operates.</li>
+            </ul>
+          </div>
+
+          <!-- Section 6 -->
+          <div class="privacy-section-block">
+            <h2 class="privacy-heading">6. Third-Party Services</h2>
+            <p class="privacy-text">
+              The extension communicates solely between your browser and two trusted platforms:
+            </p>
+            <ul class="privacy-list">
+              <li><strong>X (Twitter):</strong> Governed by X's <a href="https://x.com/en/privacy" target="_blank" rel="noopener noreferrer" style="color: var(--accent-purple);">Privacy Policy</a>.</li>
+              <li><strong>Google Gemini:</strong> Governed by Google's <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style="color: var(--accent-purple);">Privacy Policy</a> and Gemini Terms of Service.</li>
+            </ul>
+          </div>
+
+          <!-- Section 7 -->
+          <div class="privacy-section-block">
+            <h2 class="privacy-heading">7. Open Source &amp; Independent Verification</h2>
+            <p class="privacy-text">
+              This project is completely open source under the <strong>MIT License</strong>. The entire source code is publicly accessible on GitHub:
+            </p>
+            <p class="privacy-text">
+              <a href="https://github.com/gomedz/twitter-auto-reply" target="_blank" rel="noopener noreferrer" style="color: var(--accent-purple); font-weight: 600; text-decoration: underline;">
+                github.com/gomedz/twitter-auto-reply
+              </a>
+            </p>
+            <p class="privacy-text">
+              Any developer or security researcher can inspect every line of code, verify network requests in Chrome DevTools, or install the extension directly from source.
+            </p>
+          </div>
+
+          <!-- Section 8 -->
+          <div class="privacy-section-block">
+            <h2 class="privacy-heading">8. Contact &amp; Questions</h2>
+            <p class="privacy-text">
+              If you have any questions or feedback regarding this Privacy Policy or the security of the extension, please open an issue on GitHub:
+            </p>
+            <p class="privacy-text">
+              <a href="https://github.com/gomedz/twitter-auto-reply/issues" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
+                Report an Issue or Ask on GitHub
+              </a>
+            </p>
+          </div>
+
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <!-- Site Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand-col">
+          <div class="nav-brand">
+            <div class="nav-brand-logo">
+              <img src="assets/icons/icon-48.png" alt="𝕏 AI Logo" width="30" height="30">
+            </div>
+            <div class="nav-brand-text">
+              <span>Twitter AI Assistant</span>
+              <span class="nav-brand-tag">No API</span>
+            </div>
+          </div>
+          <p class="footer-tagline">
+            High-signal AI replies and viral post creation for 𝕏 (Twitter). Free, private, and powered by Google Gemini.
+          </p>
+        </div>
+
+        <div class="footer-links-grid">
+          <div>
+            <h4 class="footer-col-title">Product</h4>
+            <ul class="footer-links-list">
+              <li><a href="https://chromewebstore.google.com/detail/bgpgjojfnfoepfedcinphjmmgkkffhpo" target="_blank" rel="noopener noreferrer" class="footer-link">Chrome Web Store</a></li>
+              <li><a href="index.html#how-it-works" class="footer-link">How it Works</a></li>
+              <li><a href="index.html#engines" class="footer-link">AI Engines</a></li>
+              <li><a href="index.html#features" class="footer-link">Features</a></li>
+              <li><a href="index.html#faq" class="footer-link">FAQ</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="footer-col-title">Resources &amp; Trust</h4>
+            <ul class="footer-links-list">
+              <li><a href="https://github.com/gomedz/twitter-auto-reply" target="_blank" rel="noopener noreferrer" class="footer-link">GitHub Repository</a></li>
+              <li><a href="privacy.html" class="footer-link" style="color: var(--accent-purple);">Privacy Policy</a></li>
+              <li><a href="https://github.com/gomedz/twitter-auto-reply/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" class="footer-link">MIT License</a></li>
+              <li><a href="https://github.com/gomedz/twitter-auto-reply/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer" class="footer-link">Changelog</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="footer-col-title">Support Creator</h4>
+            <ul class="footer-links-list">
+              <li><a href="https://buymeacoffee.com/gmd.inc" target="_blank" rel="noopener noreferrer" class="footer-link">Buy Me a Coffee ☕</a></li>
+              <li><a href="https://teer.id/gmd.inc" target="_blank" rel="noopener noreferrer" class="footer-link">Trakteer (ID) 🍵</a></li>
+              <li><a href="https://github.com/gomedz/twitter-auto-reply/issues" target="_blank" rel="noopener noreferrer" class="footer-link">Report an Issue</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>
+          &copy; 2026 𝕏 (Twitter) Auto Reply &amp; Post Creator No API. Open source software released under MIT License.
+        </div>
+        <div>
+          Not affiliated with X Corp or Google LLC. Google Gemini is a trademark of Google LLC.
+        </div>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

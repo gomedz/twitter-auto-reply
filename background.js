@@ -1,20 +1,24 @@
 // background.js - Multi-Engine Service Worker for Twitter AI Auto Reply
 // Supports:
 // 1. 'nano': Chrome Built-in Gemini Nano (0 tabs, local GPU, Prompt API)
-// 2. 'headless': Direct Web Request with Google Cookies (0 tabs, background fetch)
-// 3. 'web_tab': Gemini Web Tab DOM Automation (with optional auto-close)
+// 2. 'cloud_api': Google Gemini Cloud REST API (0 tabs, free API key, 1.5-flash / 2.0-flash / 1.5-pro)
+// 3. 'headless': Direct Web Request with Google Cookies (0 tabs, background fetch)
+// 4. 'web_tab': Gemini Web Tab DOM Automation (with optional auto-close)
 
 const GEMINI_URL = 'https://gemini.google.com/app';
 
 // Default settings
 const DEFAULT_SETTINGS = {
-  engine: 'nano', // 'nano' | 'headless' | 'web_tab'
+  engine: 'nano', // 'nano' | 'cloud_api' | 'headless' | 'web_tab'
   defaultTone: 'quick',
   defaultPostStyle: 'engaging',
   customInstructions: 'Keep output concise, under 260 characters. No hashtags. No quotation marks. Be natural, authentic, and human.',
   autoOpenGemini: true,
   autoCloseTab: true,
-  showFloatingHud: true
+  showFloatingHud: true,
+  apiKey: '',
+  cloudModel: 'gemini-3.1-flash-lite',
+  cloudApiVersion: 'v1beta'
 };
 
 // Initialize settings & declarative rules on install / startup
@@ -181,6 +185,159 @@ async function generateViaNano(promptText, customInstructions = '') {
   return resp.reply;
 }
 
+
+// ==========================================
+// ENGINE: GOOGLE GEMINI CLOUD REST API
+// Matches ai_autochat implementation
+// ==========================================
+async function generateViaCloudAPI(promptText, customInstructions = '') {
+  const {
+    apiKey = '',
+    cloudModel = 'gemini-3.1-flash-lite'
+  } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+  const cleanKey = apiKey.trim();
+
+  if (!cleanKey) {
+    throw new Error('Gemini API key is missing. Please open extension settings and configure your Google Gemini API key.');
+  }
+
+  let targetModel = cloudModel || 'gemini-3.1-flash-lite';
+  if (/gemma/i.test(targetModel)) {
+    targetModel = 'gemini-3.1-flash-lite';
+    await chrome.storage.local.set({ cloudModel: 'gemini-3.1-flash-lite' });
+  }
+
+  // Strict concise system instruction preventing chain-of-thought/options
+  let systemInstructionText = 'You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, bullet points, or quotes. Output plain text under 260 characters.';
+  if (customInstructions) {
+    systemInstructionText += ' STRICT USER RULES: ' + customInstructions;
+  }
+  if (hasNoEmojiInstruction(customInstructions)) {
+    systemInstructionText += ' Absolutely NO emojis. Plain text only.';
+  }
+
+  const requestBody = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: promptText }]
+      }
+    ],
+    systemInstruction: {
+      parts: [{ text: systemInstructionText }]
+    },
+    generationConfig: {
+      temperature: 0.85,
+      maxOutputTokens: 500
+    }
+  };
+
+  // Primary URL matching ai_autochat
+  const candidateUrls = [
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent?key=${encodeURIComponent(cleanKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(cleanKey)}`,
+    `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(targetModel)}:generateContent?key=${encodeURIComponent(cleanKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(cleanKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(cleanKey)}`
+  ];
+
+  let lastErrorDetail = '';
+  for (const url of candidateUrls) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) {
+          throw new Error('Received empty response from Gemini Cloud API.');
+        }
+        return text.trim();
+      }
+
+      const errJson = await response.json().catch(() => ({}));
+      lastErrorDetail = errJson.error?.message || `HTTP ${response.status} ${response.statusText}`;
+
+      if (response.status === 400 && (lastErrorDetail.includes('API_KEY_INVALID') || lastErrorDetail.includes('not valid'))) {
+        throw new Error(`Google API Key is invalid: ${lastErrorDetail}`);
+      }
+      if (response.status === 429) {
+        throw new Error('Google Cloud API rate limit exceeded (Quota 429). Please wait a few moments.');
+      }
+    } catch (fetchErr) {
+      if (fetchErr.message.includes('API Key is invalid') || fetchErr.message.includes('rate limit')) {
+        throw fetchErr;
+      }
+      lastErrorDetail = fetchErr.message;
+    }
+  }
+
+  throw new Error(`Gemini Cloud API Error: ${lastErrorDetail}`);
+}
+
+// Validate Google Gemini API Key matching ai_autochat
+async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-lite') {
+  const cleanKey = (apiKey || '').trim();
+  if (!cleanKey) {
+    return { valid: false, message: 'API key is empty.' };
+  }
+
+  // Gemma models are disabled
+  if (requestedModel && /gemma/i.test(requestedModel)) {
+    return {
+      valid: false,
+      message: 'Gemma models are disabled. Please choose a Gemini model (e.g. Gemini 3.1 Flash Lite).'
+    };
+  }
+
+  const modelToTest = requestedModel || 'gemini-3.1-flash-lite';
+
+  const candidateEndpoints = [
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelToTest)}:generateContent?key=${encodeURIComponent(cleanKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${encodeURIComponent(cleanKey)}`,
+    `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(modelToTest)}:generateContent?key=${encodeURIComponent(cleanKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(cleanKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(cleanKey)}`
+  ];
+
+  let lastError = '';
+  for (const endpoint of candidateEndpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 50 }
+        })
+      });
+
+      if (res.ok) {
+        return {
+          valid: true,
+          model: modelToTest,
+          message: `✓ Valid & Ready! Connected to ${modelToTest}`
+        };
+      }
+
+      const data = await res.json().catch(() => ({}));
+      lastError = data.error?.message || `HTTP ${res.status}: ${res.statusText}`;
+
+      if (res.status === 400 && (lastError.includes('API_KEY_INVALID') || lastError.includes('not valid'))) {
+        return { valid: false, message: lastError };
+      }
+    } catch (err) {
+      lastError = err.message;
+    }
+  }
+
+  return { valid: false, message: lastError };
+}
+
 // ==========================================
 // ENGINE 2: HEADLESS WEB FETCH (COOKIES)
 // ==========================================
@@ -231,9 +388,9 @@ async function getHeadlessSessionTokens() {
 
   const html = await res.text();
 
-  const atMatch = html.match(/"SNlM0e":"([^"]+)"/);
-  const fdrMatch = html.match(/"FdrFJe":"([^"]+)"/);
-  const blMatch = html.match(/"cfb2h":"([^"]+)"/);
+  const atMatch = html.match(/"SNlM0e"\s*:\s*"([^"]+)"/) || html.match(/\\"SNlM0e\\"\s*:\s*\\"([^\\"]+)\\"/);
+  const fdrMatch = html.match(/"FdrFJe"\s*:\s*"([^"]+)"/) || html.match(/\\"FdrFJe\\"\s*:\s*\\"([^\\"]+)\\"/);
+  const blMatch = html.match(/"cfb2h"\s*:\s*"([^"]+)"/) || html.match(/\\"cfb2h\\"\s*:\s*\\"([^\\"]+)\\"/);
 
   if (!atMatch || !atMatch[1]) {
     throw new Error('Google session token (SNlM0e) not found. Please ensure you are logged into gemini.google.com in Chrome.');
@@ -242,7 +399,7 @@ async function getHeadlessSessionTokens() {
   const tokens = {
     at: atMatch[1],
     fdr: fdrMatch ? fdrMatch[1] : '',
-    bl: blMatch ? blMatch[1] : 'boq_assistant-bard-web-server_20240501.00_p0',
+    bl: blMatch ? blMatch[1] : 'boq_gemini-web-uiserver_20261006.13_p0',
     timestamp: Date.now()
   };
 
@@ -307,49 +464,112 @@ async function generateViaHeadless(promptText) {
   }
   rawText += decoder.decode(); // flush any remaining bytes
 
-  // Search for longest non-code string inside quotes that is NOT part of the prompt echo
-  const stringRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
-  let m;
-  let maxLen = 0;
-  let candidate = '';
-  
-  // Extract a signature of the prompt to filter out any echoed prompt chunks
-  const promptSignature = promptText.length > 40 ? promptText.substring(0, 40) : promptText;
-
-  while ((m = stringRegex.exec(rawText)) !== null) {
-    let unescaped = '';
-    try {
-      unescaped = JSON.parse(`"${m[1]}"`);
-    } catch (e) {
-      unescaped = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-    }
-
-    if (
-      unescaped.length > maxLen &&
-      unescaped.length < 4000 &&
-      !unescaped.startsWith('http') &&
-      !unescaped.startsWith('boq_') &&
-      !unescaped.includes('BardFrontendService') &&
-      !unescaped.includes('SNlM0e') &&
-      !unescaped.includes('FdrFJe') &&
-      !unescaped.includes('cfb2h') &&
-      !unescaped.includes('assistant.lamda') &&
-      !unescaped.includes('generic') &&
-      !unescaped.includes('MANDATORY USER RULES') &&
-      !unescaped.includes('You are crafting an authentic Twitter') &&
-      !unescaped.includes('You are an elite Twitter') &&
-      !unescaped.includes(promptSignature)
-    ) {
-      maxLen = unescaped.length;
-      candidate = unescaped;
-    }
-  }
+  const candidate = extractHeadlessReplyText(rawText, promptText);
 
   if (!candidate) {
     throw new Error('Could not parse text reply from headless stream.');
   }
 
   return candidate;
+}
+
+
+// Robust Batchexecute response extractor for Headless Gemini
+function extractHeadlessReplyText(rawText, promptText = '') {
+  if (!rawText) return '';
+
+  // 1. Direct JSON extraction from Google batchexecute stream
+  const lines = rawText.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('"[') ) continue;
+
+    try {
+      const parsedEnvelope = JSON.parse(trimmed);
+      if (Array.isArray(parsedEnvelope)) {
+        for (const item of parsedEnvelope) {
+          if (Array.isArray(item) && item[2] && typeof item[2] === 'string') {
+            try {
+              const innerData = JSON.parse(item[2]);
+              // Strategy A: Standard Gemini path: innerData[4][0][1][0]
+              if (innerData?.[4]?.[0]?.[1]?.[0] && typeof innerData[4][0][1][0] === 'string') {
+                return innerData[4][0][1][0].trim();
+              }
+              // Strategy B: Search for candidate block starting with rc_
+              const rcCandidates = findCandidateByRc(innerData);
+              if (rcCandidates) return rcCandidates.trim();
+            } catch (innerErr) {}
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Strategy C: Regex search for rc_ pattern in rawText (e.g. [\"rc_...\",[\"The answer text...\"])
+  const rcMatch = rawText.match(/\[\\?"rc_[^"]+\\?",\s*\[\\?"([^"\\]*(?:\\.[^"\\]*)*)\\?"\]/);
+  if (rcMatch && rcMatch[1]) {
+    try {
+      return JSON.parse(`"${rcMatch[1]}"`).trim();
+    } catch (e) {
+      return rcMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim();
+    }
+  }
+
+  // Strategy D: Deep string harvesting (fallback, strictly filtering out JSON containers)
+  const stringRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
+  let m;
+  let maxLen = 0;
+  let candidate = '';
+  const promptSig = promptText.length > 30 ? promptText.substring(0, 30) : promptText;
+
+  while ((m = stringRegex.exec(rawText)) !== null) {
+    let unescaped = '';
+    try {
+      unescaped = JSON.parse(`"${m[1]}"`);
+    } catch (e) {
+      unescaped = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+    }
+
+    if (
+      unescaped.length > maxLen &&
+      unescaped.length < 3000 &&
+      !unescaped.startsWith('[') &&
+      !unescaped.startsWith('{') &&
+      !unescaped.startsWith('http') &&
+      !unescaped.startsWith('boq_') &&
+      !unescaped.startsWith('rc_') &&
+      !unescaped.startsWith('c_') &&
+      !unescaped.startsWith('r_') &&
+      !unescaped.includes('BardFrontendService') &&
+      !unescaped.includes('SNlM0e') &&
+      !unescaped.includes('FdrFJe') &&
+      !unescaped.includes('cfb2h') &&
+      !unescaped.includes('assistant.lamda') &&
+      !unescaped.includes('generic') &&
+      !unescaped.includes('You are an authentic user') &&
+      !unescaped.includes('You are crafting an authentic Twitter') &&
+      (!promptSig || !unescaped.includes(promptSig))
+    ) {
+      maxLen = unescaped.length;
+      candidate = unescaped;
+    }
+  }
+
+  return candidate.trim();
+}
+
+function findCandidateByRc(node) {
+  if (!node) return null;
+  if (Array.isArray(node)) {
+    if (typeof node[0] === 'string' && node[0].startsWith('rc_') && Array.isArray(node[1]) && typeof node[1][0] === 'string') {
+      return node[1][0];
+    }
+    for (const child of node) {
+      const res = findCandidateByRc(child);
+      if (res) return res;
+    }
+  }
+  return null;
 }
 
 // ==========================================
@@ -519,6 +739,11 @@ async function executeWithFallback(engine, promptText, customInstructions = '') 
       const reply = await generateViaNano(promptText, customInstructions);
       return { reply, engine: 'Gemini Nano' };
     }
+    if (engine === 'cloud_api') {
+      const { cloudModel = 'gemini-3.1-flash-lite' } = await chrome.storage.local.get(['cloudModel']);
+      const reply = await generateViaCloudAPI(promptText, customInstructions);
+      return { reply, engine: `Cloud API (${cloudModel})` };
+    }
     if (engine === 'headless') {
       const reply = await generateViaHeadless(promptText);
       return { reply, engine: 'Headless Web' };
@@ -528,7 +753,31 @@ async function executeWithFallback(engine, promptText, customInstructions = '') 
   } catch (primaryErr) {
     console.warn(`[Background] Primary engine '${engine}' failed:`, primaryErr);
 
-    // 2. If headless failed, try Nano next if available
+    // If cloud_api failed, try nano next if available, then headless
+    if (engine === 'cloud_api') {
+      try {
+        const nanoStatus = await checkNanoStatus();
+        if (nanoStatus.available) {
+          console.log('[Background] Cloud API failed, falling back to Gemini Nano.');
+          const reply = await generateViaNano(promptText, customInstructions);
+          return { reply, engine: 'Gemini Nano (fallback)' };
+        }
+      } catch (nanoErr) {
+        console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
+      }
+
+      try {
+        console.log('[Background] Cloud API failed, attempting silent Headless fallback.');
+        const reply = await generateViaHeadless(promptText);
+        return { reply, engine: 'Headless Web (fallback)' };
+      } catch (headlessErr) {
+        console.warn('[Background] Silent Headless fallback failed:', headlessErr);
+      }
+
+      throw primaryErr;
+    }
+
+    // 2. If headless failed, try Nano next if available, or Cloud API if configured
     if (engine === 'headless') {
       try {
         const nanoStatus = await checkNanoStatus();
@@ -540,10 +789,32 @@ async function executeWithFallback(engine, promptText, customInstructions = '') 
       } catch (nanoErr) {
         console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
       }
+
+      try {
+        const { apiKey = '', cloudModel = 'gemini-3.1-flash-lite' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+        if (apiKey.trim().length > 10) {
+          console.log('[Background] Headless failed, falling back to Cloud API.');
+          const reply = await generateViaCloudAPI(promptText, customInstructions);
+          return { reply, engine: `Cloud API (${cloudModel}) (fallback)` };
+        }
+      } catch (cloudErr) {
+        console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
+      }
     }
 
-    // 3. If nano failed, try silent Headless first before opening a browser tab
+    // 3. If nano failed, try Cloud API if configured, then silent Headless
     if (engine === 'nano') {
+      try {
+        const { apiKey = '', cloudModel = 'gemini-3.1-flash-lite' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+        if (apiKey.trim().length > 10) {
+          console.log('[Background] Gemini Nano failed, falling back to Cloud API.');
+          const reply = await generateViaCloudAPI(promptText, customInstructions);
+          return { reply, engine: `Cloud API (${cloudModel}) (fallback)` };
+        }
+      } catch (cloudErr) {
+        console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
+      }
+
       try {
         console.log('[Background] Gemini Nano failed, attempting silent Headless fallback.');
         const reply = await generateViaHeadless(promptText);
@@ -553,8 +824,8 @@ async function executeWithFallback(engine, promptText, customInstructions = '') 
       }
     }
 
-    // 4. Fallback to Web Tab for both nano and headless
-    if (engine === 'nano' || engine === 'headless') {
+    // 4. Fallback to Web Tab for all non-web_tab engines
+    if (engine === 'nano' || engine === 'headless' || engine === 'cloud_api') {
       console.log('[Background] Falling back to Gemini Web Tab.');
       try {
         const reply = await generateViaWebTab(promptText);
@@ -579,7 +850,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       // 1. Check Engine Status
       if (message.type === 'CHECK_ENGINE_STATUS') {
-        const { engine = 'nano' } = await chrome.storage.local.get(['engine']);
+        let { engine = 'nano', apiKey = '', cloudModel = 'gemini-3.1-flash-lite' } = await chrome.storage.local.get(['engine', 'apiKey', 'cloudModel']);
+
+        if (!cloudModel || /gemma/i.test(cloudModel)) {
+          cloudModel = 'gemini-3.1-flash-lite';
+          await chrome.storage.local.set({ cloudModel });
+        }
+
+        if (engine === 'cloud_api') {
+          const hasKey = apiKey.trim().length > 10;
+          return sendResponse({
+            engine: 'cloud_api',
+            connected: hasKey,
+            statusText: hasKey ? `Ready (${cloudModel})` : 'Key Missing',
+            message: hasKey
+              ? `Connected to Google Gemini Cloud API (${cloudModel}). 0 tabs needed!`
+              : 'Gemini API Key required. Open Settings to enter your key.',
+            model: cloudModel
+          });
+        }
 
         if (engine === 'nano') {
           const nanoStatus = await checkNanoStatus();
@@ -645,6 +934,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             message: 'Gemini tab open but not responding. Refresh it.'
           });
         }
+      }
+
+      // Validate Cloud API Key from settings popup
+      if (message.type === 'VALIDATE_CLOUD_API_KEY') {
+        const { apiKey = '', model = 'gemini-3.1-flash-lite' } = message.payload || {};
+        const validation = await validateCloudAPIKey(apiKey, model);
+        return sendResponse(validation);
       }
 
       // 2. Open Gemini Tab
@@ -746,48 +1042,114 @@ function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions })
   const noHashtags = hasNoHashtagInstruction(customInstructions);
 
   const customBlock = customInstructions
-    ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${customInstructions}\n\n`
+    ? `Custom Rules: ${customInstructions}\n`
     : '';
 
-  return `${customBlock}You are crafting an authentic Twitter (X) reply.
-
-Tweet being replied to${authorMention}:
+  return `${customBlock}You are an authentic user on Twitter (X). Write a ${selectedTone} reply to this tweet${authorMention}:
 """
 ${tweetText}
 """
 
-Tone: ${selectedTone}.
-Strict Instructions:
-- Write ONLY the exact text of the reply.
-- Under 260 characters.
-- Do NOT wrap in quotes.
-- Do NOT include intro phrases like "Here is a reply:".
-${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.' : ''}
-${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).' : '- Do NOT include hashtags.'}
-${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+Requirements:
+- Single direct reply only, under 260 characters.
+- Conversational and human.
+- No quotation marks.
+- No conversational preamble.
+${noEmoji ? '- No emojis.\n' : ''}${noHashtags ? '- No hashtags.\n' : ''}
+Reply:`;
 }
 
-// Cleaner for Replies
+// Cleaner for Replies (Robust extraction for Gemma, Gemini, and thinking models)
 function cleanGeneratedReply(rawText, customInstructions = '') {
   if (!rawText) return '';
   let text = rawText.trim();
-  // Strip common conversational AI prefixes
-  text = text.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty )?reply:?\s*|twitter reply:?\s*|suggested reply:?\s*|reply:?\s*)/i, '').trim();
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”')) || (text.startsWith("'") && text.endsWith("'"))) {
-    text = text.slice(1, -1).trim();
+
+  // 1. Detect if model generated a scratchpad, option list, or chain-of-thought analysis
+  const hasScratchpad = /(?:\*+\s*(?:User wants|Original [Tt]weet|Target|Constraints|Tone|Topic|Goal|Category|Platform|Persona|Witty angles|Analyzing|Evaluating|Draft|Thinking|Thought)|Option\s*\d|\*+Option\s*\d)/i.test(text)
+    || (text.split('\n').filter(l => /^\s*[*•-]/.test(l)).length >= 2);
+
+  if (hasScratchpad) {
+    // Strategy A: Check for numbered options (e.g. Option 1:, *Option 1:*, **Option 1:**, *Option 4* is quite "Twitter-esque")
+    const optionMatches = [...text.matchAll(/(?:^|[\n*•-])\s*\*?\*?Option\s*(\d)\*?:\*?\s*([^\n*]+)/gi)];
+    if (optionMatches.length > 0) {
+      // Check if the model praised a specific option at the end
+      const praisedMatch = text.match(/Option\s*(\d)[^.\n]*(?:Twitter|best|clever|witty|classic|favorite)/i);
+      let chosen = optionMatches[0];
+      if (praisedMatch) {
+        const found = optionMatches.find(m => m[1] === praisedMatch[1]);
+        if (found) chosen = found;
+      }
+      let candidate = chosen[2].trim().replace(/^["'“]|["'”]$/g, '').trim();
+      if (candidate.length >= 10) {
+        return sanitizeTweetOutput(candidate, customInstructions);
+      }
+    }
+
+    // Strategy B: Check for bulleted quotes (e.g., * "My portfolio is already at its highest level...")
+    const bulletQuotes = [...text.matchAll(/(?:^|[\n*•-])\s*["“]([^"”\n]{15,260})["”]/g)];
+    if (bulletQuotes.length > 0) {
+      const validQuotes = bulletQuotes.filter(q => {
+        const t = q[1].trim();
+        return !t.toLowerCase().includes('30-year bond') && !t.toLowerCase().includes('original tweet') && t.length >= 15;
+      });
+      if (validQuotes.length > 0) {
+        return sanitizeTweetOutput(validQuotes[validQuotes.length - 1][1].trim(), customInstructions);
+      }
+    }
+
+    // Strategy C: Strip all bullet metadata and take clean text
+    text = text.replace(/(?:^|\n)\s*[*•-]\s*(?:User wants|Original [Tt]weet|Target|Constraints|Tone|Topic|Goal|Category|Platform|Persona|Subject|Sentiment|High bond yields|Witty angles|Analyzing|Evaluating|Draft|Thinking)[^:\n]*:[^\n]*/gi, '');
+    text = text.replace(/[*•-]\s*\*?Option\s*\d\*?:?/gi, '');
+    text = text.replace(/Wait,\s*let'?ss*makes*its*evens*more[^".\n]*[.:]?/gi, '');
+    text = text.replace(/Under\s*\d+\s*chars\?\s*Yes\./gi, '');
+    text = text.replace(/No\s*(?:hashtags|quotation)[^?]*\?\s*Yes\./gi, '');
+    text = text.replace(/Natural\/Human\?\s*Yes\./gi, '');
   }
+
+  return sanitizeTweetOutput(text, customInstructions);
+}
+
+// Universal Tweet Output Sanitizer
+function sanitizeTweetOutput(text, customInstructions = '') {
+  let cleaned = text.trim();
+
+  // Strip conversational AI prefixes
+  cleaned = cleaned.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty )?reply:?\s*|twitter reply:?\s*|suggested reply:?\s*|reply:?\s*)/i, '').trim();
+
+  // Strip outer quotes
+  if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith('“') && cleaned.endsWith('”')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+
+  // Strip stray markdown asterisks
+  cleaned = cleaned.replace(/^\*+\s*/, '').replace(/\s*\*+$/, '').trim();
+
+  // Strip extra internal double-spacing
+  cleaned = cleaned.replace(/\s{2,}/g, ' ');
 
   // Programmatic enforcement if user requested no emoji
   if (hasNoEmojiInstruction(customInstructions)) {
-    text = text.replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '').replace(/\s+([,.!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
+    cleaned = cleaned.replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '').replace(/\s+([,.!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
   }
 
   // Programmatic enforcement if user requested no hashtags
   if (hasNoHashtagInstruction(customInstructions)) {
-    text = text.replace(/#[A-Za-z0-9_]+/g, '').replace(/\s{2,}/g, ' ').trim();
+    cleaned = cleaned.replace(/#[A-Za-z0-9_]+/g, '').replace(/\s{2,}/g, ' ').trim();
   }
 
-  return text;
+  // Limit length to 280 characters cleanly at sentence or word boundary
+  if (cleaned.length > 280) {
+    const cut = cleaned.substring(0, 275);
+    const lastPunct = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('!'), cut.lastIndexOf('?'));
+    if (lastPunct > 60) {
+      cleaned = cut.substring(0, lastPunct + 1).trim();
+    } else {
+      const lastSpace = cut.lastIndexOf(' ');
+      cleaned = (lastSpace > 60 ? cut.substring(0, lastSpace) : cut) + '...';
+    }
+  }
+
+  return cleaned;
 }
 
 // Prompt Builder for New Posts
@@ -854,22 +1216,5 @@ ${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNO
 // Cleaner for New Posts
 function cleanGeneratedPost(rawText, customInstructions = '') {
   if (!rawText) return '';
-  let text = rawText.trim();
-  // Strip common conversational AI prefixes
-  text = text.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty |viral |polished )?(?:post|tweet):?\s*|(?:suggested )?(?:post|tweet):?\s*|revised:?\s*)/i, '').trim();
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”')) || (text.startsWith("'") && text.endsWith("'"))) {
-    text = text.slice(1, -1).trim();
-  }
-
-  // Programmatic enforcement if user requested no emoji
-  if (hasNoEmojiInstruction(customInstructions)) {
-    text = text.replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '').replace(/\s+([,.!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
-  }
-
-  // Programmatic enforcement if user requested no hashtags
-  if (hasNoHashtagInstruction(customInstructions)) {
-    text = text.replace(/#[A-Za-z0-9_]+/g, '').replace(/\s{2,}/g, ' ').trim();
-  }
-
-  return text;
+  return cleanGeneratedReply(rawText, customInstructions);
 }

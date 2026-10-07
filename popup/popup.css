@@ -832,3 +832,103 @@ input:checked + .slider:before {
   font-size: 11.5px;
   border-radius: 6px;
 }
+
+
+/* Cloud API Engine Styling */
+.badge-cloud {
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.engine-option#opt-cloudapi.active {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.55);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
+}
+
+.cloud-api-card {
+  border-color: rgba(99, 102, 241, 0.3);
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.05) 0%, rgba(15, 23, 42, 0.4) 100%);
+}
+
+.label-with-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.label-with-link label {
+  margin-bottom: 0;
+}
+
+.helper-link {
+  font-size: 11px;
+  color: var(--accent-blue, #1d9bf0);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+
+.helper-link:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.input-password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-password-wrapper .form-input {
+  padding-right: 36px;
+  width: 100%;
+}
+
+.btn-toggle-eye {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.65;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.btn-toggle-eye:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.cloud-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.cloud-status-text {
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cloud-status-text.success {
+  color: #10b981;
+}
+
+.cloud-status-text.error {
+  color: #ef4444;
+}
+
+.cloud-status-text.loading {
+  color: #a5b4fc;
+}

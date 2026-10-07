@@ -14,7 +14,7 @@
         <div class="brand-icon">✦</div>
         <div class="brand-info">
           <h1>Twitter AI Assistant</h1>
-          <span class="version-tag">Reply & Post Creator &bull; No API Key</span>
+          <span class="version-tag">Reply & Post Creator &bull; Nano &amp; Cloud API</span>
         </div>
       </div>
       <div id="status-badge" class="status-badge checking" title="Click to refresh">
@@ -43,6 +43,17 @@
                 <span class="badge badge-recommended">0 Tabs &bull; Local GPU</span>
               </div>
               <p class="engine-desc">Runs inside Chrome. 100% offline, local, private, and zero tabs.</p>
+            </div>
+          </label>
+
+          <label class="engine-option" id="opt-cloudapi">
+            <input type="radio" name="engine" value="cloud_api">
+            <div class="engine-content">
+              <div class="engine-header">
+                <span class="engine-name">☁️ Cloud API</span>
+                <span class="badge badge-cloud">0 Tabs &bull; Ultra Fast</span>
+              </div>
+              <p class="engine-desc">Official Google Gemini API via free key. Instant &amp; 100% reliable.</p>
             </div>
           </label>
 
@@ -80,6 +91,39 @@
           <span>Open Gemini</span>
           <span class="external-icon">&nearr;</span>
         </button>
+      </section>
+
+      <!-- Cloud API Configuration Card -->
+      <section class="card cloud-api-card" id="cloud-api-config" style="display: none;">
+        <div class="section-title">Google Gemini API Configuration</div>
+        
+        <div class="form-group">
+          <div class="label-with-link">
+            <label for="cloud-api-key">Gemini API Key</label>
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" class="helper-link">Get Free Key &nearr;</a>
+          </div>
+          <div class="input-password-wrapper">
+            <input type="password" id="cloud-api-key" class="form-input" placeholder="AIzaSy..." spellcheck="false" autocomplete="off">
+            <button type="button" id="btn-toggle-key-visibility" class="btn-toggle-eye" title="Show/Hide Key">👁️</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="cloud-model-select">Model Version</label>
+          <select id="cloud-model-select" class="form-select">
+            <option value="gemini-3.1-flash-lite" selected>Gemini 3.1 Flash Lite (Recommended - Ultra Fast)</option>
+            <option value="gemini-2.0-flash">Gemini 2.0 Flash (Next-Gen)</option>
+            <option value="gemini-1.5-flash">Gemini 1.5 Flash (Standard)</option>
+            <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Reasoning)</option>
+          </select>
+        </div>
+
+        <div class="cloud-actions">
+          <button type="button" id="btn-test-cloud-key" class="btn btn-secondary btn-sm">
+            <span>Verify API Key</span>
+          </button>
+          <span id="cloud-key-status" class="cloud-status-text"></span>
+        </div>
       </section>
 
       <!-- Preferences Section -->

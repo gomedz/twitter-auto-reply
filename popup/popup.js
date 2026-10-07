@@ -16,6 +16,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const defaultToneSelect = document.getElementById('default-tone');
   const customInstructionsEl = document.getElementById('custom-instructions');
 
+  // Cloud API Elements
+  const cloudApiConfig = document.getElementById('cloud-api-config');
+  const cloudApiKeyInput = document.getElementById('cloud-api-key');
+  const btnToggleKeyVisibility = document.getElementById('btn-toggle-key-visibility');
+  const cloudModelSelect = document.getElementById('cloud-model-select');
+  const btnTestCloudKey = document.getElementById('btn-test-cloud-key');
+  const cloudKeyStatus = document.getElementById('cloud-key-status');
+
   const btnTest = document.getElementById('btn-test');
   const testInput = document.getElementById('test-input');
   const testOutput = document.getElementById('test-output');
@@ -74,7 +82,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     'defaultPostStyle',
     'customInstructions',
     'autoCloseTab',
-    'showFloatingHud'
+    'showFloatingHud',
+    'apiKey',
+    'cloudModel'
   ]);
 
   const currentEngine = settings.engine || 'nano';
@@ -87,6 +97,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (settings.autoCloseTab !== undefined) autoCloseToggle.checked = settings.autoCloseTab;
   if (floatingHudToggle) {
     floatingHudToggle.checked = settings.showFloatingHud !== false;
+  }
+  if (settings.apiKey && cloudApiKeyInput) cloudApiKeyInput.value = settings.apiKey;
+  if (settings.cloudModel && cloudModelSelect) {
+    if (/gemma/i.test(settings.cloudModel)) {
+      settings.cloudModel = 'gemini-3.1-flash-lite';
+      await chrome.storage.local.set({ cloudModel: 'gemini-3.1-flash-lite' });
+    }
+    cloudModelSelect.value = settings.cloudModel;
+  }
+
+  // Purge any legacy Gemma options from dropdown
+  if (cloudModelSelect) {
+    Array.from(cloudModelSelect.options).forEach(opt => {
+      if (/gemma/i.test(opt.value) || /gemma/i.test(opt.textContent)) {
+        opt.remove();
+      }
+    });
   }
 
   // Engine selection handler
@@ -106,14 +133,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnOpenGemini.style.display = 'inline-flex';
       rowAutoclose.style.display = 'flex';
       sessionTitle.textContent = 'Gemini Web Tab Status';
+      if (cloudApiConfig) cloudApiConfig.style.display = 'none';
+    } else if (engineValue === 'cloud_api') {
+      btnOpenGemini.style.display = 'none';
+      rowAutoclose.style.display = 'none';
+      sessionTitle.textContent = 'Google Gemini Cloud API Status';
+      if (cloudApiConfig) cloudApiConfig.style.display = 'block';
     } else if (engineValue === 'headless') {
       btnOpenGemini.style.display = 'none';
       rowAutoclose.style.display = 'none';
       sessionTitle.textContent = 'Headless Cookie Status';
+      if (cloudApiConfig) cloudApiConfig.style.display = 'none';
     } else {
       btnOpenGemini.style.display = 'none';
       rowAutoclose.style.display = 'none';
       sessionTitle.textContent = 'Gemini Nano (Local AI) Status';
+      if (cloudApiConfig) cloudApiConfig.style.display = 'none';
     }
   }
 
@@ -196,6 +231,112 @@ document.addEventListener('DOMContentLoaded', async () => {
       const isEnabled = floatingHudToggle.checked;
       await chrome.storage.local.set({ showFloatingHud: isEnabled });
       flashSaved();
+    });
+  }
+
+  // Cloud API Key auto-save on input with debounce
+  let keySaveTimer = null;
+  if (cloudApiKeyInput) {
+    cloudApiKeyInput.addEventListener('input', () => {
+      if (keySaveTimer) clearTimeout(keySaveTimer);
+      keySaveTimer = setTimeout(async () => {
+        const keyVal = cloudApiKeyInput.value.trim();
+        await chrome.storage.local.set({ apiKey: keyVal });
+        flashSaved();
+        checkStatus();
+      }, 500);
+    });
+  }
+
+  // Cloud API Key visibility toggle
+  if (btnToggleKeyVisibility && cloudApiKeyInput) {
+    btnToggleKeyVisibility.addEventListener('click', () => {
+      const isPassword = cloudApiKeyInput.type === 'password';
+      cloudApiKeyInput.type = isPassword ? 'text' : 'password';
+      btnToggleKeyVisibility.textContent = isPassword ? '🙈' : '👁️';
+    });
+  }
+
+  // Cloud Model change
+  if (cloudModelSelect) {
+    cloudModelSelect.addEventListener('change', async () => {
+      const selectedModel = cloudModelSelect.value;
+      await chrome.storage.local.set({ cloudModel: selectedModel });
+      flashSaved();
+      checkStatus();
+    });
+  }
+
+  // Verify Cloud API Key button
+  if (btnTestCloudKey) {
+    btnTestCloudKey.addEventListener('click', async () => {
+      const keyVal = cloudApiKeyInput ? cloudApiKeyInput.value.trim() : '';
+      const modelVal = cloudModelSelect ? cloudModelSelect.value : 'gemini-3.1-flash-lite';
+
+      if (!keyVal) {
+        if (cloudKeyStatus) {
+          cloudKeyStatus.className = 'cloud-status-text error';
+          cloudKeyStatus.textContent = 'Please enter an API key first.';
+        }
+        if (cloudApiKeyInput) cloudApiKeyInput.focus();
+        return;
+      }
+
+      btnTestCloudKey.disabled = true;
+      if (cloudKeyStatus) {
+        cloudKeyStatus.className = 'cloud-status-text loading';
+        cloudKeyStatus.textContent = 'Testing key...';
+      }
+
+      try {
+        const resp = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({
+            type: 'VALIDATE_CLOUD_API_KEY',
+            payload: { apiKey: keyVal, model: modelVal }
+          }, resolve);
+        });
+
+        if (resp && resp.valid) {
+          if (cloudKeyStatus) {
+            cloudKeyStatus.className = 'cloud-status-text success';
+            cloudKeyStatus.textContent = resp.message || '✓ Valid & Ready!';
+          }
+          // Auto-select discovered working model in dropdown (Gemini models only)
+          if (resp.model && !/gemma/i.test(resp.model) && cloudModelSelect) {
+            let opt = Array.from(cloudModelSelect.options).find(o => o.value === resp.model);
+            if (!opt) {
+              opt = document.createElement('option');
+              opt.value = resp.model;
+              opt.textContent = `${resp.model} (Active)`;
+              cloudModelSelect.appendChild(opt);
+            }
+            cloudModelSelect.value = resp.model;
+          }
+          const finalModel = (resp.model && !/gemma/i.test(resp.model))
+            ? resp.model
+            : (cloudModelSelect && !/gemma/i.test(cloudModelSelect.value) ? cloudModelSelect.value : 'gemini-3.1-flash-lite');
+
+          await chrome.storage.local.set({
+            apiKey: keyVal,
+            cloudModel: finalModel,
+            cloudApiVersion: resp.apiVersion || 'v1beta'
+          });
+          flashSaved();
+          checkStatus();
+        } else {
+          if (cloudKeyStatus) {
+            cloudKeyStatus.className = 'cloud-status-text error';
+            cloudKeyStatus.textContent = `❌ ${resp?.message || 'Invalid API key.'}`;
+          }
+        }
+      } catch (err) {
+        if (cloudKeyStatus) {
+          cloudKeyStatus.className = 'cloud-status-text error';
+          cloudKeyStatus.textContent = `❌ Error: ${err.message}`;
+        }
+      } finally {
+        btnTestCloudKey.disabled = false;
+      }
     });
   }
 

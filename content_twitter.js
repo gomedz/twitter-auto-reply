@@ -1009,9 +1009,10 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
 
   // Engine definitions (used in card body)
   const ENGINES = [
-    { id: 'nano',     label: 'Nano',     cls: 'nano-active' },
-    { id: 'headless', label: 'Headless', cls: 'headless-active' },
-    { id: 'web_tab',  label: 'Web',      cls: 'web-active' }
+    { id: 'nano',      label: 'Nano',      cls: 'nano-active' },
+    { id: 'cloud_api', label: 'Cloud API', cls: 'cloud-active' },
+    { id: 'headless',  label: 'Headless',  cls: 'headless-active' },
+    { id: 'web_tab',   label: 'Web',       cls: 'web-active' }
   ];
   let currentEngine = 'nano';
 
@@ -1062,7 +1063,7 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   function setActiveChip(engineId) {
     currentEngine = engineId;
     engineChips.querySelectorAll('.gemini-hud-engine-chip').forEach(chip => {
-      chip.classList.remove('active', 'nano-active', 'headless-active', 'web-active');
+      chip.classList.remove('active', 'nano-active', 'cloud-active', 'headless-active', 'web-active');
     });
     const activeChip = engineChips.querySelector(`[data-engine="${engineId}"]`);
     if (activeChip) {
@@ -1155,7 +1156,7 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   instructionsBox.innerHTML = `
     <label class="gemini-hud-label">Custom Prompt Instruction</label>
     <div class="gemini-hud-instructions-input-wrap">
-      <textarea class="gemini-hud-instructions-textarea" id="gemini-hud-instructions-input" placeholder="e.g., Concise, no emojis, authentic..." rows="2"></textarea>
+      <textarea class="gemini-hud-instructions-textarea" id="gemini-hud-instructions-input" placeholder="e.g., Concise, no emojis, authentic..." rows="3"></textarea>
       <button type="button" class="gemini-hud-save-btn" id="gemini-hud-save-btn" title="Save custom instructions">Save</button>
     </div>
   `;
@@ -1300,7 +1301,7 @@ async function updateEngineStatusBadge(hudEl) {
     });
 
     const connected = !!(resp && resp.connected);
-    const engineName = resp?.engine === 'nano' ? 'Nano' : resp?.engine === 'headless' ? 'Headless' : 'Web Tab';
+    const engineName = resp?.engine === 'nano' ? 'Nano' : resp?.engine === 'cloud_api' ? 'Cloud API' : resp?.engine === 'headless' ? 'Headless' : 'Web Tab';
     const statusStr = resp?.statusText || (connected ? 'Ready' : 'Offline');
 
     const dotClass = `gemini-hud-status-dot ${connected ? 'connected' : 'disconnected'}`;

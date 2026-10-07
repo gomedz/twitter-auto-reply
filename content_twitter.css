@@ -543,21 +543,23 @@
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
-  gap: 8px !important;
+  gap: 6px !important;
   padding: 4px 0 6px !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
   margin-bottom: 4px !important;
+  flex-wrap: nowrap !important;
 }
 
 .gemini-hud-engine-chip {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: 3px 10px !important;
+  padding: 3px 8px !important;
   border-radius: 9999px !important;
   font-size: 11px !important;
   font-weight: 700 !important;
-  letter-spacing: 0.3px !important;
+  letter-spacing: 0.2px !important;
+  flex-shrink: 0 !important;
   color: rgba(255, 255, 255, 0.45) !important;
   cursor: pointer !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -581,6 +583,13 @@
 .gemini-hud-engine-chip.active.nano-active {
   background: rgba(138, 43, 226, 0.4) !important;
   border-color: rgba(138, 43, 226, 0.7) !important;
+}
+
+.gemini-hud-engine-chip.active.cloud-active,
+.gemini-hud-engine-chip[data-engine="cloud_api"].active {
+  background: rgba(99, 102, 241, 0.4) !important;
+  border-color: rgba(99, 102, 241, 0.75) !important;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.3) !important;
 }
 
 .gemini-hud-engine-chip.active.headless-active {
@@ -663,7 +672,7 @@
 .gemini-hud-card {
   display: flex;
   flex-direction: column;
-  width: 310px;
+  width: 338px;
   background: rgba(22, 24, 28, 0.96);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -832,8 +841,8 @@
   padding: 6px 50px 6px 8px;
   font-family: inherit;
   resize: vertical;
-  min-height: 40px;
-  max-height: 90px;
+  min-height: 54px;
+  max-height: 100px;
   outline: none;
   line-height: 1.35;
   transition: border-color 0.15s ease;
