@@ -557,7 +557,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnCheckNano) {
     btnCheckNano.addEventListener('click', () => {
       chrome.tabs.create({
-        url: 'https://github.com/gomedz/twitter-auto-reply/blob/main/check_gemini_nano.md'
+        url: 'https://github.com/gomedz/twitter-auto-reply'
       });
     });
   }
