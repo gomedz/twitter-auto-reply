@@ -14,10 +14,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Intelligent Engine Fallback**: Automatically cascades across Cloud API, Gemini Nano, Headless, and Web Tab engines to guarantee generation uptime.
 
 ### Improved & Hardened
+- **Sub-Second Cloud API Latency**: Disabled thinking tokens (`thinkingBudget: 0`) for Gemini 2.5 and 3.x models, added request timeouts, and lowered max output tokens to 260 for instant tweet generation without reasoning delays.
+- **Zero-Quota Key Verification**: Upgraded API key validation to use `models.list` metadata verification (consuming 0 `GenerateContent` quota) and added graceful handling for Google's 1-minute RPM rate limits.
+- **Engine Fallback Pipeline Fix**: Fixed broken cascade in `executeWithFallback` so failures in `cloud_api` properly cascade all the way down through Nano, Headless, and Gemini Web Tab.
+- **Gemini Nano Weight Detection**: Enhanced availability checks to accurately distinguish ready state from `Download Needed`, preventing false "Ready" indicators when Chrome model weights are missing.
+- **Context-Aware Prompt Separation**: Implemented distinct prompt instructions for tweet replies vs standalone post drafting/polishing.
+- **Headless Web Resilience**: Added automatic token invalidation on HTTP 400/401/403 and an `AbortSignal.timeout(30000)` guard against hanging connections.
+- **Structured Error Handling**: Mapped internal errors so the Twitter UI toast properly displays the "Open Gemini" button when authentication is required.
+- **Output Sanitization & Option Parsing**: Fixed option scratchpad regex to prevent premature truncation on asterisks and added post/tweet preamble stripping.
 - **Floating HUD Layout**: Expanded HUD card width to 338px and refined engine chip spacing/padding, ensuring all 4 engine pills (`Nano`, `Cloud API`, `Headless`, and `Web`) fit with ample breathing room without right-edge truncation.
 - **Custom Prompt Textarea**: Increased min-height to 54px and default rows to 3 so multiline instructions are cleanly visible without vertical text clipping.
-- **Intelligent Response Extractor**: Upgraded `cleanGeneratedReply` and `sanitizeTweetOutput` to cleanly parse multi-option blocks and strip internal deliberation scratchpads.
-- **Official Model Guardrails**: Restricted API selection to official Gemini models (`gemini-3.1-flash-lite` default, `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`) and auto-sanitized storage selections to filter out Gemma scratchpad issues.
+- **Official Model Guardrails**: Restricted API selection to official Gemini models (`gemini-3.1-flash-lite`, `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`) and auto-sanitized storage selections to filter out Gemma scratchpad issues.
 - **Headless Engine Stream Parser**: Overhauled Google Batchexecute response parsing in `extractHeadlessReplyText` to directly extract clean response candidate text and prevent returning raw serialized JSON arrays.
 - **Headless Session Token Extraction**: Added support for escaped `SNlM0e` tokens and updated build fallback to `boq_gemini-web-uiserver_20261006.13_p0`.
 

@@ -258,12 +258,19 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
 
     if (!response || !response.success) {
       const errorMsg = response?.message || 'Failed to generate reply.';
+      const isAuthIssue = response?.error === 'NOT_LOGGED_IN' ||
+                          response?.error === 'NO_TAB' ||
+                          /not logged in|session token|log in|no gemini tab/i.test(errorMsg);
+      const isApiKeyIssue = response?.error === 'API_KEY_ERROR' ||
+                            /api key|api_key/i.test(errorMsg);
 
-      if (response?.error === 'NOT_LOGGED_IN' || response?.error === 'NO_TAB') {
+      if (isAuthIssue) {
         showToast('Please log in to Gemini at gemini.google.com', 'error', {
           text: 'Open Gemini',
           onClick: () => chrome.runtime.sendMessage({ type: 'OPEN_GEMINI' })
         });
+      } else if (isApiKeyIssue) {
+        showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
       } else {
         showToast(`Gemini error: ${errorMsg}`, 'error');
       }
@@ -496,12 +503,19 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
 
     if (!response || !response.success) {
       const errorMsg = response?.message || 'Failed to generate post.';
+      const isAuthIssue = response?.error === 'NOT_LOGGED_IN' ||
+                          response?.error === 'NO_TAB' ||
+                          /not logged in|session token|log in|no gemini tab/i.test(errorMsg);
+      const isApiKeyIssue = response?.error === 'API_KEY_ERROR' ||
+                            /api key|api_key/i.test(errorMsg);
 
-      if (response?.error === 'NOT_LOGGED_IN' || response?.error === 'NO_TAB') {
+      if (isAuthIssue) {
         showToast('Please log in to Gemini at gemini.google.com', 'error', {
           text: 'Open Gemini',
           onClick: () => chrome.runtime.sendMessage({ type: 'OPEN_GEMINI' })
         });
+      } else if (isApiKeyIssue) {
+        showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
       } else {
         showToast(`Gemini error: ${errorMsg}`, 'error');
       }
@@ -1014,7 +1028,7 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
     { id: 'headless',  label: 'Headless',  cls: 'headless-active' },
     { id: 'web_tab',   label: 'Web',       cls: 'web-active' }
   ];
-  let currentEngine = 'nano';
+  let currentEngine = 'cloud_api';
 
   // Expanded Card View
   const card = document.createElement('div');
@@ -1094,8 +1108,8 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
 
   // Load saved engine
   chrome.storage.local.get(['engine']).then(s => {
-    setActiveChip(s.engine || 'nano');
-  }).catch(() => setActiveChip('nano'));
+    setActiveChip(s.engine || 'cloud_api');
+  }).catch(() => setActiveChip('cloud_api'));
 
   // Quick tone & style selectors row
   const rowSelectors = document.createElement('div');
@@ -1301,10 +1315,11 @@ async function updateEngineStatusBadge(hudEl) {
     });
 
     const connected = !!(resp && resp.connected);
+    const isWarning = resp?.statusText === 'Download Needed' || resp?.statusText === 'Downloading';
     const engineName = resp?.engine === 'nano' ? 'Nano' : resp?.engine === 'cloud_api' ? 'Cloud API' : resp?.engine === 'headless' ? 'Headless' : 'Web Tab';
     const statusStr = resp?.statusText || (connected ? 'Ready' : 'Offline');
 
-    const dotClass = `gemini-hud-status-dot ${connected ? 'connected' : 'disconnected'}`;
+    const dotClass = `gemini-hud-status-dot ${connected ? 'connected' : (isWarning ? 'warning' : 'disconnected')}`;
     if (cardDot) cardDot.className = dotClass;
     if (pillDot) pillDot.className = dotClass;
 
@@ -1357,7 +1372,22 @@ async function handleHudDraft(hudEl) {
 
     if (!response || !response.success) {
       const errMsg = response?.message || 'Failed to generate tweet.';
-      showToast(`Gemini error: ${errMsg}`, 'error');
+      const isAuthIssue = response?.error === 'NOT_LOGGED_IN' ||
+                          response?.error === 'NO_TAB' ||
+                          /not logged in|session token|log in|no gemini tab/i.test(errMsg);
+      const isApiKeyIssue = response?.error === 'API_KEY_ERROR' ||
+                            /api key|api_key/i.test(errMsg);
+
+      if (isAuthIssue) {
+        showToast('Please log in to Gemini at gemini.google.com', 'error', {
+          text: 'Open Gemini',
+          onClick: () => chrome.runtime.sendMessage({ type: 'OPEN_GEMINI' })
+        });
+      } else if (isApiKeyIssue) {
+        showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
+      } else {
+        showToast(`Gemini error: ${errMsg}`, 'error');
+      }
       return;
     }
 

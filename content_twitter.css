@@ -668,6 +668,11 @@
   color: #f4212e;
 }
 
+.gemini-hud-status-dot.warning {
+  background: #ffd400;
+  color: #ffd400;
+}
+
 /* Expanded Card */
 .gemini-hud-card {
   display: flex;

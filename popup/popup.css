@@ -129,6 +129,15 @@ body {
   background: var(--danger);
 }
 
+.status-badge.warning {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning);
+}
+.status-badge.warning .status-dot {
+  background: var(--warning);
+}
+
 .status-badge.checking .status-dot {
   background: var(--warning);
   animation: pulse 1s infinite alternate;
@@ -227,6 +236,12 @@ body {
   background: rgba(16, 185, 129, 0.15);
   color: var(--success);
   border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-cloud {
+  background: rgba(29, 155, 240, 0.15);
+  color: var(--accent-blue);
+  border: 1px solid rgba(29, 155, 240, 0.3);
 }
 
 .engine-desc {

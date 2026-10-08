@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     'cloudModel'
   ]);
 
-  const currentEngine = settings.engine || 'nano';
+  const currentEngine = settings.engine || 'cloud_api';
   setEngineUI(currentEngine);
 
   if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
@@ -360,6 +360,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         statusBadge.className = 'status-badge online';
         statusText.textContent = resp.statusText || 'Ready';
         sessionDesc.textContent = resp.message || 'Engine ready to generate replies.';
+      } else if (resp.statusText === 'Download Needed' || resp.statusText === 'Downloading') {
+        statusBadge.className = 'status-badge warning';
+        statusText.textContent = resp.statusText;
+        sessionDesc.textContent = resp.message || 'Model download required in Chrome.';
       } else {
         statusBadge.className = 'status-badge offline';
         statusText.textContent = resp.statusText || 'Offline';
