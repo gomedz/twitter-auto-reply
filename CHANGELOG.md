@@ -8,13 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 - **Google Gemini Cloud REST API Engine**: Direct official REST integration with Google Generative Language API.
   - Zero browser tabs required, ultra-fast latency, and maximum stability.
-  - Multi-model selection: `gemini-3.1-flash-lite` (default), `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`.
+  - Multi-model selection: `gemini-2.0-flash` (default), `gemini-2.5-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`.
   - Secure local API key storage with masked input, eye visibility toggle, and instant key verification test button.
   - On-page Floating HUD support with dedicated `Cloud API` status chip and dynamic badge indicator.
 - **Intelligent Engine Fallback**: Automatically cascades across Cloud API, Gemini Nano, Headless, and Web Tab engines to guarantee generation uptime.
 
 ### Improved & Hardened
-- **Sub-Second Cloud API Latency**: Disabled thinking tokens (`thinkingBudget: 0`) for Gemini 2.5 and 3.x models, added request timeouts, and lowered max output tokens to 260 for instant tweet generation without reasoning delays.
+- **Blazing-Fast Sub-Second Cloud API**: Defaulted to `gemini-2.0-flash`, added 4000ms timeouts per candidate model, disabled thinking tokens on hybrid reasoning models, and added live generation duration reporting to Twitter toasts.
+- **Chrome Prompt API Modernization**: Implemented `expectedInputs` and `expectedOutputs` safety language attestation parameters in `LanguageModel.create()` to satisfy modern Chromium requirements and eliminate `offscreen.html` warnings.
+- **Direct Cloud API Error Handling**: Prevented sluggish 20-second Headless fallbacks when using Cloud API, ensuring users receive immediate, accurate error feedback.
 - **Zero-Quota Key Verification**: Upgraded API key validation to use `models.list` metadata verification (consuming 0 `GenerateContent` quota) and added graceful handling for Google's 1-minute RPM rate limits.
 - **Engine Fallback Pipeline Fix**: Fixed broken cascade in `executeWithFallback` so failures in `cloud_api` properly cascade all the way down through Nano, Headless, and Gemini Web Tab.
 - **Gemini Nano Weight Detection**: Enhanced availability checks to accurately distinguish ready state from `Download Needed`, preventing false "Ready" indicators when Chrome model weights are missing.
@@ -24,7 +26,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Output Sanitization & Option Parsing**: Fixed option scratchpad regex to prevent premature truncation on asterisks and added post/tweet preamble stripping.
 - **Floating HUD Layout**: Expanded HUD card width to 338px and refined engine chip spacing/padding, ensuring all 4 engine pills (`Nano`, `Cloud API`, `Headless`, and `Web`) fit with ample breathing room without right-edge truncation.
 - **Custom Prompt Textarea**: Increased min-height to 54px and default rows to 3 so multiline instructions are cleanly visible without vertical text clipping.
-- **Official Model Guardrails**: Restricted API selection to official Gemini models (`gemini-3.1-flash-lite`, `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`) and auto-sanitized storage selections to filter out Gemma scratchpad issues.
+- **Official Model Guardrails**: Restricted API selection to official Gemini models (`gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`) and auto-sanitized storage selections to filter out Gemma scratchpad issues.
 - **Headless Engine Stream Parser**: Overhauled Google Batchexecute response parsing in `extractHeadlessReplyText` to directly extract clean response candidate text and prevent returning raw serialized JSON arrays.
 - **Headless Session Token Extraction**: Added support for escaped `SNlM0e` tokens and updated build fallback to `boq_gemini-web-uiserver_20261006.13_p0`.
 

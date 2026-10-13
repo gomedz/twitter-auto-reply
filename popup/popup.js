@@ -100,11 +100,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (settings.apiKey && cloudApiKeyInput) cloudApiKeyInput.value = settings.apiKey;
   if (settings.cloudModel && cloudModelSelect) {
-    if (/gemma/i.test(settings.cloudModel)) {
-      settings.cloudModel = 'gemini-3.1-flash-lite';
-      await chrome.storage.local.set({ cloudModel: 'gemini-3.1-flash-lite' });
+    if (/gemma/i.test(settings.cloudModel) || settings.cloudModel === 'gemini-3.1-flash-lite') {
+      settings.cloudModel = 'gemini-2.0-flash';
+      await chrome.storage.local.set({ cloudModel: 'gemini-2.0-flash' });
     }
-    cloudModelSelect.value = settings.cloudModel;
+    cloudModelSelect.value = settings.cloudModel || 'gemini-2.0-flash';
   }
 
   // Purge any legacy Gemma options from dropdown
@@ -271,7 +271,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnTestCloudKey) {
     btnTestCloudKey.addEventListener('click', async () => {
       const keyVal = cloudApiKeyInput ? cloudApiKeyInput.value.trim() : '';
-      const modelVal = cloudModelSelect ? cloudModelSelect.value : 'gemini-3.1-flash-lite';
+      const modelVal = cloudModelSelect ? cloudModelSelect.value : 'gemini-2.0-flash';
 
       if (!keyVal) {
         if (cloudKeyStatus) {
@@ -314,7 +314,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
           const finalModel = (resp.model && !/gemma/i.test(resp.model))
             ? resp.model
-            : (cloudModelSelect && !/gemma/i.test(cloudModelSelect.value) ? cloudModelSelect.value : 'gemini-3.1-flash-lite');
+            : (cloudModelSelect && !/gemma/i.test(cloudModelSelect.value) ? cloudModelSelect.value : 'gemini-2.0-flash');
 
           await chrome.storage.local.set({
             apiKey: keyVal,
@@ -632,6 +632,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     });
   }
+
+  // Synchronize popup UI if settings change externally (e.g. via Floating HUD)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.engine) {
+      setEngineUI(changes.engine.newValue);
+      checkStatus();
+    }
+    if (changes.defaultTone && defaultToneSelect) {
+      defaultToneSelect.value = changes.defaultTone.newValue;
+    }
+    if (changes.defaultPostStyle && defaultPostStyleSelect) {
+      defaultPostStyleSelect.value = changes.defaultPostStyle.newValue;
+      if (postStyleSelect) postStyleSelect.value = changes.defaultPostStyle.newValue;
+    }
+    if (changes.customInstructions && customInstructionsEl && document.activeElement !== customInstructionsEl) {
+      customInstructionsEl.value = changes.customInstructions.newValue || '';
+    }
+    if (changes.cloudModel && cloudModelSelect) {
+      cloudModelSelect.value = changes.cloudModel.newValue;
+    }
+    if (changes.apiKey && cloudApiKeyInput && document.activeElement !== cloudApiKeyInput) {
+      cloudApiKeyInput.value = changes.apiKey.newValue || '';
+    }
+  });
 
   // Initial status check
   checkStatus();

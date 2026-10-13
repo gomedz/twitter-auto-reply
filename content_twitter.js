@@ -185,13 +185,25 @@ function insertTextIntoEditor(editor, text) {
 
   // Step 2: Dispatch synthetic paste event. Draft.js handles this natively in its
   // React event system, inserting the text exactly once without browser duplication.
-  const dt = new DataTransfer();
-  dt.setData('text/plain', text);
-  editor.dispatchEvent(new ClipboardEvent('paste', {
-    bubbles: true,
-    cancelable: true,
-    clipboardData: dt
-  }));
+  try {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', text);
+    editor.dispatchEvent(new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: dt
+    }));
+  } catch (e) {}
+
+  // Verification step: verify whether paste event successfully updated content
+  let updatedContent = (editor.innerText || editor.textContent || '').trim();
+  if (!updatedContent || updatedContent === currentContent) {
+    // Fallback: try execCommand('insertText')
+    try {
+      document.execCommand('insertText', false, text);
+    } catch (e) {}
+    updatedContent = (editor.innerText || editor.textContent || '').trim();
+  }
 
   // Step 3: Dispatch input and change events so Twitter's React character counter
   // and Post/Reply buttons update their active state.
@@ -214,7 +226,10 @@ function insertTextIntoEditor(editor, text) {
     } catch (e) {}
   }, 50);
 
-  return true;
+  // Return true if editor actually received the text, or false so clipboard fallback triggers
+  const textSample = text.trim().substring(0, Math.min(20, text.trim().length));
+  const isInserted = !!updatedContent && (updatedContent === text.trim() || updatedContent.includes(textSample));
+  return isInserted;
 }
 
 // Handle generating reply for a selected tone
@@ -242,6 +257,7 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
   containerEl.classList.add('loading');
   actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ Gemini...</span>`;
 
+  const startTime = Date.now();
   showToast('✦ Generating reply with Gemini...', 'info');
 
   try {
@@ -277,13 +293,15 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
       return;
     }
 
+    const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
+    const engineLabel = response?.engine ? ` via ${response.engine}` : '';
     const replyText = response.reply;
     const inserted = insertTextIntoEditor(editor, replyText);
 
     if (inserted) {
-      showToast('✦ Reply generated and inserted!', 'success');
+      showToast(`✦ Reply generated${engineLabel} in ${durationSec}s!`, 'success');
     } else {
-      showToast('Could not auto-fill reply box. Text copied to clipboard!', 'info');
+      showToast(`✦ Reply generated${engineLabel} in ${durationSec}s (copied to clipboard)!`, 'info');
       try {
         await navigator.clipboard.writeText(replyText);
       } catch (e) {
@@ -1356,6 +1374,7 @@ async function handleHudDraft(hudEl) {
   const originalText = draftText.textContent;
   draftText.innerHTML = `<span class="gemini-spinner"></span> Generating...`;
 
+  const startTime = Date.now();
   try {
     showToast('✦ Generating tweet with Gemini...', 'info');
 
@@ -1391,6 +1410,8 @@ async function handleHudDraft(hudEl) {
       return;
     }
 
+    const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
+    const engineLabel = response?.engine ? ` via ${response.engine}` : '';
     const postContent = response.post;
 
     // 1. Look for existing modal or timeline composer editor
@@ -1419,7 +1440,7 @@ async function handleHudDraft(hudEl) {
 
     if (editor) {
       insertTextIntoEditor(editor, postContent);
-      showToast('✦ Tweet drafted & inserted into composer!', 'success');
+      showToast(`✦ Tweet drafted${engineLabel} in ${durationSec}s!`, 'success');
       if (textarea) textarea.value = '';
       // Collapse HUD after drafting
       hudEl.classList.remove('gemini-hud-expanded');
@@ -1429,10 +1450,10 @@ async function handleHudDraft(hudEl) {
       // Fallback: Copy to clipboard
       try {
         await navigator.clipboard.writeText(postContent);
-        showToast('✦ Tweet generated and copied to clipboard!', 'success');
+        showToast(`✦ Tweet drafted${engineLabel} in ${durationSec}s (copied to clipboard)!`, 'success');
         if (textarea) textarea.value = '';
       } catch (clipErr) {
-        showToast('✦ Tweet generated: ' + postContent.substring(0, 50) + '...', 'info');
+        showToast(`✦ Tweet drafted${engineLabel} in ${durationSec}s: ` + postContent.substring(0, 50) + '...', 'info');
       }
     }
   } catch (err) {

@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS = {
   autoCloseTab: true,
   showFloatingHud: true,
   apiKey: '',
-  cloudModel: 'gemini-3.1-flash-lite',
+  cloudModel: 'gemini-2.0-flash',
   cloudApiVersion: 'v1beta'
 };
 
@@ -163,7 +163,7 @@ async function generateViaNano(promptText, customInstructions = '', mode = 'repl
 async function generateViaCloudAPI(promptText, customInstructions = '', mode = 'reply') {
   const {
     apiKey = '',
-    cloudModel = 'gemini-3.1-flash-lite'
+    cloudModel = 'gemini-2.0-flash'
   } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
   const cleanKey = apiKey.trim();
 
@@ -171,10 +171,10 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
     throw new Error('Gemini API key is missing. Please open extension settings and configure your Google Gemini API key.');
   }
 
-  let targetModel = cloudModel || 'gemini-3.1-flash-lite';
-  if (/gemma/i.test(targetModel)) {
-    targetModel = 'gemini-3.1-flash-lite';
-    await chrome.storage.local.set({ cloudModel: 'gemini-3.1-flash-lite' });
+  let targetModel = cloudModel || 'gemini-2.0-flash';
+  if (/gemma|3\.1/i.test(targetModel)) {
+    targetModel = 'gemini-2.0-flash';
+    await chrome.storage.local.set({ cloudModel: 'gemini-2.0-flash' });
   }
 
   // Strict concise system instruction preventing chain-of-thought/options
@@ -189,10 +189,11 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
     systemInstructionText += ' Absolutely NO emojis. Plain text only.';
   }
 
-  // Deduplicated candidate models to prevent quota spam
+  // Deduplicated candidate models to ensure seamless, blazing-fast failover across rate limits & availability
   const uniqueCandidateModels = Array.from(new Set([
     targetModel,
     'gemini-2.0-flash',
+    'gemini-2.5-flash',
     'gemini-1.5-flash'
   ])).filter(Boolean);
 
@@ -222,37 +223,50 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
     };
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    const reqStart = Date.now();
     try {
+      console.log(`[Background] Cloud API: Requesting '${model}'...`);
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': cleanKey
+        },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(12000)
+        signal: AbortSignal.timeout(4000)
       });
 
       if (response.ok) {
         const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        const validTextParts = parts.filter(p => !p.thought && typeof p.text === 'string');
+        const text = validTextParts.length > 0
+          ? validTextParts.map(p => p.text).join('').trim()
+          : (parts[0]?.text || '').trim();
         if (!text) {
           throw new Error('Received empty response from Gemini Cloud API.');
         }
-        return text.trim();
+        const reqDuration = Date.now() - reqStart;
+        console.log(`[Background] Cloud API: Model '${model}' succeeded in ${reqDuration}ms!`);
+        return text;
       }
 
       const errJson = await response.json().catch(() => ({}));
       lastErrorDetail = errJson.error?.message || `HTTP ${response.status} ${response.statusText}`;
 
-      if (response.status === 400 && (lastErrorDetail.includes('API_KEY_INVALID') || lastErrorDetail.includes('not valid'))) {
+      // If invalid API key, throw immediately (trying other models with the same invalid key will never succeed)
+      if (response.status === 400 && (lastErrorDetail.includes('API_KEY_INVALID') || lastErrorDetail.includes('not valid') || lastErrorDetail.includes('API key not valid'))) {
         throw new Error(`Google API Key is invalid: ${lastErrorDetail}`);
       }
-      if (response.status === 429) {
-        throw new Error('Google Cloud API 1-minute rate limit reached (RPM limit). Resets in ~60s.');
-      }
+
+      // If 429 RPM rate limit, 404 not found, or 503, log warning and let the loop cascade to the next candidate model
+      console.warn(`[Background] Model '${model}' failed after ${Date.now() - reqStart}ms (${response.status}: ${lastErrorDetail}). Falling over to next candidate model...`);
     } catch (fetchErr) {
-      if (fetchErr.message.includes('API Key is invalid') || fetchErr.message.includes('rate limit')) {
+      if (fetchErr.message && (fetchErr.message.includes('API Key is invalid') || fetchErr.message.includes('API key is missing'))) {
         throw fetchErr;
       }
       lastErrorDetail = fetchErr.message;
+      console.warn(`[Background] Model '${model}' encountered error after ${Date.now() - reqStart}ms: ${fetchErr.message}. Falling over to next candidate model...`);
     }
   }
 
@@ -260,7 +274,7 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
 }
 
 // Validate Google Gemini API Key using zero-quota models.list metadata verification
-async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-lite') {
+async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') {
   const cleanKey = (apiKey || '').trim();
   if (!cleanKey) {
     return { valid: false, message: 'API key is empty.' };
@@ -270,18 +284,21 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-li
   if (requestedModel && /gemma/i.test(requestedModel)) {
     return {
       valid: false,
-      message: 'Gemma models are disabled. Please choose a Gemini model (e.g. Gemini 2.0 Flash or 1.5 Flash).'
+      message: 'Gemma models are disabled. Please choose a Gemini model (e.g. Gemini 2.5 Flash or 2.0 Flash).'
     };
   }
 
   // Step 1: Verify API key validity via models.list (Consumes ZERO generation quota!)
   let availableModels = [];
   try {
-    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`);
+    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`, {
+      headers: { 'x-goog-api-key': cleanKey },
+      signal: AbortSignal.timeout(4000)
+    });
     if (!listRes.ok) {
       const errData = await listRes.json().catch(() => ({}));
       const errMsg = errData.error?.message || `HTTP ${listRes.status}: ${listRes.statusText}`;
-      if (listRes.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('not valid'))) {
+      if (listRes.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('not valid') || errMsg.includes('API key not valid'))) {
         return { valid: false, message: 'API key is not valid. Please check your key from Google AI Studio.' };
       }
       return { valid: false, message: errMsg };
@@ -296,7 +313,7 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-li
   }
 
   // At this point, the API key is 100% verified with Google!
-  const modelToTest = requestedModel || 'gemini-3.1-flash-lite';
+  const modelToTest = requestedModel || 'gemini-2.0-flash';
 
   // Step 2: Test generation with selected model (with graceful RPM/quota handling)
   try {
@@ -304,11 +321,15 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-li
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelToTest)}:generateContent?key=${encodeURIComponent(cleanKey)}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': cleanKey
+        },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
           generationConfig: { temperature: 0.7, maxOutputTokens: 20 }
-        })
+        }),
+        signal: AbortSignal.timeout(4000)
       }
     );
 
@@ -316,6 +337,7 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-li
       return {
         valid: true,
         model: modelToTest,
+        apiVersion: 'v1beta',
         message: `✓ Valid & Ready! Connected to ${modelToTest}`
       };
     }
@@ -328,6 +350,7 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-li
       return {
         valid: true,
         model: modelToTest,
+        apiVersion: 'v1beta',
         message: `✓ Key is Valid! Note: ${modelToTest} hit Google's 1-min rate limit (RPM). Resets every 60s, or select Gemini 2.0 Flash / 1.5 Flash.`
       };
     }
@@ -338,6 +361,7 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-li
       return {
         valid: true,
         model: fallback,
+        apiVersion: 'v1beta',
         message: `✓ Valid Key! Note: ${modelToTest} not enabled in region; switched to ${fallback}`
       };
     }
@@ -345,12 +369,14 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.1-flash-li
     return {
       valid: true,
       model: modelToTest,
+      apiVersion: 'v1beta',
       message: `✓ Valid API Key! (Status: ${errDetail.substring(0, 80)})`
     };
   } catch (genErr) {
     return {
       valid: true,
       model: modelToTest,
+      apiVersion: 'v1beta',
       message: `✓ Valid API Key! (${genErr.message})`
     };
   }
@@ -782,7 +808,7 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       return { reply, engine: 'Gemini Nano' };
     }
     if (engine === 'cloud_api') {
-      const { cloudModel = 'gemini-3.1-flash-lite' } = await chrome.storage.local.get(['cloudModel']);
+      const { cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['cloudModel']);
       const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
       return { reply, engine: `Cloud API (${cloudModel})` };
     }
@@ -795,12 +821,22 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
   } catch (primaryErr) {
     console.warn(`[Background] Primary engine '${engine}' failed:`, primaryErr);
 
-    // If cloud_api failed, try nano next if available, then headless, then web_tab
+    // If Cloud API failed due to a missing or invalid API key, throw immediately!
+    // Do NOT fall back to other engines or open unexpected tabs when the user needs to configure their key.
+    if (engine === 'cloud_api') {
+      const isConfigError = /api key.*(?:missing|invalid|not valid)/i.test(primaryErr.message);
+      if (isConfigError) {
+        throw primaryErr;
+      }
+    }
+
+    // A. If primary was cloud_api: try Nano (instant on-device AI) only.
+    // Do NOT fall back to slow Headless (20s) or Web Tab when user explicitly configured Cloud API.
     if (engine === 'cloud_api') {
       try {
         const nanoStatus = await checkNanoStatus();
         if (nanoStatus.available && nanoStatus.isReady !== false) {
-          console.log('[Background] Cloud API failed, falling back to Gemini Nano.');
+          console.log('[Background] Cloud API failed, falling back to local Gemini Nano.');
           const reply = await generateViaNano(promptText, customInstructions, mode);
           return { reply, engine: 'Gemini Nano (fallback)' };
         }
@@ -808,45 +844,14 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
         console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
       }
 
-      try {
-        console.log('[Background] Cloud API failed, attempting silent Headless fallback.');
-        const reply = await generateViaHeadless(promptText);
-        return { reply, engine: 'Headless Web (fallback)' };
-      } catch (headlessErr) {
-        console.warn('[Background] Silent Headless fallback failed:', headlessErr);
-      }
-      // Note: Falls through to Web Tab fallback below!
+      // Throw primary Cloud API error immediately so user sees the real error instead of masking it with 20s delay
+      throw primaryErr;
     }
 
-    // 2. If headless failed, try Nano next if available, or Cloud API if configured
-    if (engine === 'headless') {
-      try {
-        const nanoStatus = await checkNanoStatus();
-        if (nanoStatus.available && nanoStatus.isReady !== false) {
-          console.log('[Background] Headless failed, falling back to Gemini Nano.');
-          const reply = await generateViaNano(promptText, customInstructions, mode);
-          return { reply, engine: 'Gemini Nano (fallback)' };
-        }
-      } catch (nanoErr) {
-        console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
-      }
-
-      try {
-        const { apiKey = '', cloudModel = 'gemini-3.1-flash-lite' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
-        if (apiKey.trim().length > 10) {
-          console.log('[Background] Headless failed, falling back to Cloud API.');
-          const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
-          return { reply, engine: `Cloud API (${cloudModel}) (fallback)` };
-        }
-      } catch (cloudErr) {
-        console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
-      }
-    }
-
-    // 3. If nano failed, try Cloud API if configured, then silent Headless
+    // B. If primary was nano: try Cloud API -> Headless -> Web Tab (only if tab exists)
     if (engine === 'nano') {
       try {
-        const { apiKey = '', cloudModel = 'gemini-3.1-flash-lite' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+        const { apiKey = '', cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
         if (apiKey.trim().length > 10) {
           console.log('[Background] Gemini Nano failed, falling back to Cloud API.');
           const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
@@ -863,18 +868,84 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       } catch (headlessErr) {
         console.warn('[Background] Silent Headless fallback failed:', headlessErr);
       }
+
+      const existingTab = await findGeminiTab();
+      if (existingTab) {
+        try {
+          console.log('[Background] Gemini Nano failed, falling back to existing Gemini Web Tab.');
+          const reply = await generateViaWebTab(promptText);
+          return { reply, engine: 'Gemini Web Tab (fallback)' };
+        } catch (tabErr) {
+          console.warn('[Background] Web Tab fallback failed:', tabErr);
+        }
+      }
+
+      throw primaryErr;
     }
 
-    // 4. Fallback to Web Tab for all non-web_tab engines
-    if (engine === 'nano' || engine === 'headless' || engine === 'cloud_api') {
-      console.log('[Background] Falling back to Gemini Web Tab.');
+    // C. If primary was headless: try Nano -> Cloud API -> Web Tab (only if tab exists)
+    if (engine === 'headless') {
       try {
-        const reply = await generateViaWebTab(promptText);
-        return { reply, engine: 'Gemini Web Tab (fallback)' };
-      } catch (tabErr) {
-        console.error('[Background] Web Tab fallback also failed:', tabErr);
-        throw new Error(`All AI generation engines failed. Primary (${engine}) error: ${primaryErr.message}. Fallback error: ${tabErr.message}`);
+        const nanoStatus = await checkNanoStatus();
+        if (nanoStatus.available && nanoStatus.isReady !== false) {
+          console.log('[Background] Headless failed, falling back to Gemini Nano.');
+          const reply = await generateViaNano(promptText, customInstructions, mode);
+          return { reply, engine: 'Gemini Nano (fallback)' };
+        }
+      } catch (nanoErr) {
+        console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
       }
+
+      try {
+        const { apiKey = '', cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+        if (apiKey.trim().length > 10) {
+          console.log('[Background] Headless failed, falling back to Cloud API.');
+          const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
+          return { reply, engine: `Cloud API (${cloudModel}) (fallback)` };
+        }
+      } catch (cloudErr) {
+        console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
+      }
+
+      const existingTab = await findGeminiTab();
+      if (existingTab) {
+        try {
+          console.log('[Background] Headless failed, falling back to existing Gemini Web Tab.');
+          const reply = await generateViaWebTab(promptText);
+          return { reply, engine: 'Gemini Web Tab (fallback)' };
+        } catch (tabErr) {
+          console.warn('[Background] Web Tab fallback failed:', tabErr);
+        }
+      }
+
+      throw primaryErr;
+    }
+
+    // D. If primary was web_tab: try Cloud API (if configured) -> Nano (if ready)
+    if (engine === 'web_tab') {
+      try {
+        const { apiKey = '', cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+        if (apiKey.trim().length > 10) {
+          console.log('[Background] Web Tab failed, falling back to Cloud API.');
+          const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
+          return { reply, engine: `Cloud API (${cloudModel}) (fallback)` };
+        }
+      } catch (cloudErr) {
+        console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
+      }
+
+      try {
+        const nanoStatus = await checkNanoStatus();
+        if (nanoStatus.available && nanoStatus.isReady !== false) {
+          console.log('[Background] Web Tab failed, falling back to Gemini Nano.');
+          const reply = await generateViaNano(promptText, customInstructions, mode);
+          return { reply, engine: 'Gemini Nano (fallback)' };
+        }
+      } catch (nanoErr) {
+        console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
+      }
+
+      throw primaryErr;
     }
 
     throw primaryErr;
@@ -891,10 +962,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       // 1. Check Engine Status
       if (message.type === 'CHECK_ENGINE_STATUS') {
-        let { engine = 'cloud_api', apiKey = '', cloudModel = 'gemini-3.1-flash-lite' } = await chrome.storage.local.get(['engine', 'apiKey', 'cloudModel']);
+        let { engine = 'cloud_api', apiKey = '', cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['engine', 'apiKey', 'cloudModel']);
 
         if (!cloudModel || /gemma/i.test(cloudModel)) {
-          cloudModel = 'gemini-3.1-flash-lite';
+          cloudModel = 'gemini-2.0-flash';
           await chrome.storage.local.set({ cloudModel });
         }
 
@@ -994,7 +1065,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       // Validate Cloud API Key from settings popup
       if (message.type === 'VALIDATE_CLOUD_API_KEY') {
-        const { apiKey = '', model = 'gemini-3.1-flash-lite' } = message.payload || {};
+        const { apiKey = '', model = 'gemini-2.0-flash' } = message.payload || {};
         const validation = await validateCloudAPIKey(apiKey, model);
         return sendResponse(validation);
       }
@@ -1156,7 +1227,7 @@ function cleanGeneratedReply(rawText, customInstructions = '') {
     if (bulletQuotes.length > 0) {
       const validQuotes = bulletQuotes.filter(q => {
         const t = q[1].trim();
-        return !t.toLowerCase().includes('30-year bond') && !t.toLowerCase().includes('original tweet') && t.length >= 15;
+        return !t.toLowerCase().includes('original tweet') && t.length >= 15;
       });
       if (validQuotes.length > 0) {
         return sanitizeTweetOutput(validQuotes[validQuotes.length - 1][1].trim(), customInstructions);
@@ -1164,9 +1235,9 @@ function cleanGeneratedReply(rawText, customInstructions = '') {
     }
 
     // Strategy C: Strip all bullet metadata and take clean text
-    text = text.replace(/(?:^|\n)\s*[*•-]\s*(?:User wants|Original [Tt]weet|Target|Constraints|Tone|Topic|Goal|Category|Platform|Persona|Subject|Sentiment|High bond yields|Witty angles|Analyzing|Evaluating|Draft|Thinking)[^:\n]*:[^\n]*/gi, '');
+    text = text.replace(/(?:^|\n)\s*[*•-]\s*(?:User wants|Original [Tt]weet|Target|Constraints|Tone|Topic|Goal|Category|Platform|Persona|Subject|Sentiment|Witty angles|Analyzing|Evaluating|Draft|Thinking)[^:\n]*:[^\n]*/gi, '');
     text = text.replace(/[*•-]\s*\*?Option\s*\d\*?:?/gi, '');
-    text = text.replace(/Wait,\s*let'?ss*makes*its*evens*more[^".\n]*[.:]?/gi, '');
+    text = text.replace(/Wait,\s*let'?s\s*make\s*it\s*even\s*more[^".\n]*[.:]?/gi, '');
     text = text.replace(/Under\s*\d+\s*chars\?\s*Yes\./gi, '');
     text = text.replace(/No\s*(?:hashtags|quotation)[^?]*\?\s*Yes\./gi, '');
     text = text.replace(/Natural\/Human\?\s*Yes\./gi, '');

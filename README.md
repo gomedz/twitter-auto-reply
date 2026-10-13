@@ -13,7 +13,7 @@ You can choose your preferred engine anytime with one click in the extension pop
 1. **☁️ Google Gemini Cloud API (Ultra-Fast & Free)** *(Recommended)*:
    - **0 tabs opened**.
    - Direct official REST integration with Google Generative Language API.
-   - Ultra-fast response times powered by **`gemini-3.1-flash-lite`** (also supports `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`).
+   - Ultra-fast response times powered by **`gemini-2.5-flash`** (also supports `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`).
    - Uses a **100% free** API key from [Google AI Studio](https://aistudio.google.com/app/apikey) (no billing or credit card required).
    - Built-in connection testing & key verification right from the popup.
 

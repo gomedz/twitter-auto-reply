@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "𝕏 (Twitter) Auto Reply & Post Creator No API",
+  "name": "Twitter (𝕏) AI Assistant: Auto Reply & Post Creator",
   "version": "1.3.0",
   "description": "Generate intelligent auto-replies and craft viral tweets on Twitter (X) using Gemini Nano, Cloud API, or your Gemini session.",
   "icons": {

@@ -28,7 +28,7 @@ Whether you want lightning-fast on-device AI that works offline, an official fre
 1. **☁️ Google Gemini Cloud API (Ultra-Fast & Free)** *(Recommended)*:
    - **0 tabs opened**.
    - Direct REST integration with Google Generative Language API.
-   - Powered by Google's latest **`gemini-3.1-flash-lite`** (also supports `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`).
+   - Powered by Google's fast & reliable **`gemini-2.5-flash`** (also supports `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`).
    - Uses a **100% free** API key from Google AI Studio (no credit card or billing needed).
    - Built-in key verification and connection testing directly in the popup.
 
@@ -126,7 +126,7 @@ Whether you want lightning-fast on-device AI that works offline, an official fre
 
 - **v1.3.0** (Cloud API & HUD Overhaul):
   - Added official Google Gemini Cloud REST API engine with zero tabs and free Google AI Studio integration.
-  - Multi-model selection: `gemini-3.1-flash-lite` default, `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`.
+  - Multi-model selection: `gemini-2.5-flash` default, `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`.
   - Built-in instant API key verification & connection test.
   - Upgraded Floating HUD to 338px with live 4-engine status chips and multiline prompt textarea editor.
   - Overhauled Headless stream parser and session token extraction.
