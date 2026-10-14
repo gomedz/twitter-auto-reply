@@ -114,12 +114,8 @@ function checkLoginStatus() {
   const chatWindow = document.querySelector('chat-window, bard-sidenav, chat-history, [aria-label*="Chat history" i], [aria-label*="Recent chats" i]');
   const newChatBtn = document.querySelector('button[aria-label*="New chat" i], [data-test-id*="new-chat"]');
 
-  // If chat elements exist, the user is 100% authenticated
   const hasChatUI = !!(inputEl || richTextarea || chatWindow || newChatBtn);
-
-  // Check explicit sign-in link/button (strictly on unauthenticated landing pages)
   const explicitSignIn = document.querySelector('a[href*="ServiceLogin"], a[href*="/signin"], button[aria-label*="Sign in" i]');
-
   const isLoggedIn = hasChatUI || (isApp && !explicitSignIn);
 
   return {
@@ -131,7 +127,7 @@ function checkLoginStatus() {
   };
 }
 
-// Wait for input element to be available (useful if single-page app is hydrating)
+// Wait for input element to be available
 async function waitForInput(timeoutMs = 15000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -151,11 +147,9 @@ async function setGeminiInput(text) {
 
   input.focus();
 
-  // If there is an internal paragraph tag (common in Quill editor)
   const p = input.querySelector('p') || input;
   p.focus();
 
-  // Select all existing content
   let success = false;
   try {
     const selection = window.getSelection();
@@ -166,7 +160,6 @@ async function setGeminiInput(text) {
     success = document.execCommand('insertText', false, text);
   } catch (e) {}
 
-  // If execCommand failed or didn't update text (common in unfocused/background tabs)
   if (!success || !input.innerText.trim()) {
     if (input.tagName === 'TEXTAREA') {
       input.value = text;
@@ -174,7 +167,6 @@ async function setGeminiInput(text) {
       input.innerHTML = `<p>${escapeHtml(text)}</p>`;
     }
 
-    // Dispatch comprehensive InputEvent sequence so Quill / Angular updates internal state
     input.dispatchEvent(new InputEvent('beforeinput', {
       bubbles: true,
       cancelable: true,
@@ -189,18 +181,15 @@ async function setGeminiInput(text) {
     }));
   }
 
-  // Dispatch standard events so Angular change detection fires
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // Allow UI state to update
   await new Promise(r => setTimeout(r, 400));
 }
 
 // Click send button or press enter
 async function clickSend() {
   const start = Date.now();
-  // Wait up to 3 seconds for Send button to activate naturally
   while (Date.now() - start < 3000) {
     const sendBtn = findElement(SEND_BUTTON_SELECTORS);
     if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
@@ -210,7 +199,6 @@ async function clickSend() {
     await new Promise(r => setTimeout(r, 200));
   }
 
-  // Force enable and click Send button if present
   const sendBtn = findElement(SEND_BUTTON_SELECTORS);
   if (sendBtn) {
     sendBtn.disabled = false;
@@ -220,7 +208,6 @@ async function clickSend() {
     return true;
   }
 
-  // Fallback: Dispatch Enter key on the input element
   const input = findInputElement();
   if (input) {
     input.dispatchEvent(new KeyboardEvent('keydown', {
@@ -237,17 +224,15 @@ async function clickSend() {
   throw new Error('Could not find or click the Send button in Gemini.');
 }
 
-// Wait for the response to finish streaming and return clean text
+// Wait for the NEW response node to mount and finish streaming
 async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
   const startTime = Date.now();
-  let hasStartedStreaming = false;
   let sawStopBtn = false;
   let lastText = '';
   let stableCount = 0;
 
   return new Promise((resolve, reject) => {
     const checkInterval = setInterval(() => {
-      // Check overall timeout
       if (Date.now() - startTime > timeoutMs) {
         clearInterval(checkInterval);
         const responses = findElements(RESPONSE_SELECTORS);
@@ -267,15 +252,11 @@ async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
         sawStopBtn = true;
       }
 
-      if (stopBtn || currentCount > initialResponseCount) {
-        hasStartedStreaming = true;
-      }
-
-      if (hasStartedStreaming) {
-        const lastResp = responses.length > 0 ? responses[responses.length - 1] : null;
+      // Strictly require a new response container beyond initialResponseCount
+      if (currentCount > initialResponseCount) {
+        const lastResp = responses[currentCount - 1];
         const currentText = lastResp ? (lastResp.innerText || lastResp.textContent || '').trim() : '';
 
-        // Check if text is stabilizing
         if (currentText && currentText === lastText) {
           stableCount++;
         } else {
@@ -283,9 +264,6 @@ async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
           lastText = currentText;
         }
 
-        // Completion condition:
-        // - If we saw the stop button and now it's gone: wait for 2 stable checks (~500ms)
-        // - If we never saw the stop button: wait for 4 stable checks (~1000ms) to guard against packet jitter
         const requiredStableChecks = sawStopBtn ? 2 : 4;
 
         if (!stopBtn && stableCount >= requiredStableChecks && currentText.length > 0) {
@@ -307,17 +285,12 @@ async function handleExecutePrompt(prompt) {
     };
   }
 
-  // Count existing responses before sending
   const initialResponses = findElements(RESPONSE_SELECTORS);
   const initialCount = initialResponses.length;
 
-  // Insert prompt
   await setGeminiInput(prompt);
-
-  // Send
   await clickSend();
 
-  // Wait for new response
   const replyText = await waitForGeminiResponse(initialCount, 45000);
 
   if (!replyText || !replyText.trim()) {
@@ -355,6 +328,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       }
     })();
-    return true; // Keep channel open for async response
+    return true;
   }
 });

@@ -128,7 +128,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
-    // Show "Open Gemini" button only when Web Tab is selected
     if (engineValue === 'web_tab') {
       btnOpenGemini.style.display = 'inline-flex';
       rowAutoclose.style.display = 'flex';
@@ -301,7 +300,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             cloudKeyStatus.className = 'cloud-status-text success';
             cloudKeyStatus.textContent = resp.message || '✓ Valid & Ready!';
           }
-          // Auto-select discovered working model in dropdown (Gemini models only)
           if (resp.model && !/gemma/i.test(resp.model) && cloudModelSelect) {
             let opt = Array.from(cloudModelSelect.options).find(o => o.value === resp.model);
             if (!opt) {
@@ -380,10 +378,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     sessionDesc.textContent = msg;
   }
 
-  // Refresh status when badge is clicked
   statusBadge.addEventListener('click', checkStatus);
 
-  // Open Gemini Tab button
   btnOpenGemini.addEventListener('click', async () => {
     btnOpenGemini.disabled = true;
     try {
@@ -475,10 +471,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (postOutputError) postOutputError.style.display = 'none';
       if (postOutputText) {
         postOutputText.style.display = 'block';
+        postOutputText.contentEditable = 'false';
         postOutputText.textContent = 'Crafting tweet with active AI engine...';
       }
-      if (postOutputActions) postOutputActions.style.display = 'flex';
-      updateCharCount();
+      if (postOutputActions) postOutputActions.style.display = 'none';
+      if (postCharCount) {
+        postCharCount.classList.remove('over-limit');
+        postCharCount.textContent = '... / 280';
+      }
 
       try {
         const response = await new Promise((resolve) => {
@@ -496,6 +496,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (postOutputError) postOutputError.style.display = 'none';
           if (postOutputText) {
             postOutputText.style.display = 'block';
+            postOutputText.contentEditable = 'true';
             postOutputText.innerText = response.post;
           }
           if (postOutputActions) postOutputActions.style.display = 'flex';

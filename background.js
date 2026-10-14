@@ -155,10 +155,8 @@ async function generateViaNano(promptText, customInstructions = '', mode = 'repl
   return resp.reply;
 }
 
-
 // ==========================================
 // ENGINE: GOOGLE GEMINI CLOUD REST API
-// Matches ai_autochat implementation
 // ==========================================
 async function generateViaCloudAPI(promptText, customInstructions = '', mode = 'reply') {
   const {
@@ -179,8 +177,8 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
 
   // Strict concise system instruction preventing chain-of-thought/options
   let systemInstructionText = mode === 'post'
-    ? 'You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, bullet points, or quotes. Output plain text under 260 characters.'
-    : 'You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, bullet points, or quotes. Output plain text under 260 characters.';
+    ? 'You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under 260 characters.'
+    : 'You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under 260 characters.';
 
   if (customInstructions) {
     systemInstructionText += ' STRICT USER RULES: ' + customInstructions;
@@ -189,7 +187,7 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
     systemInstructionText += ' Absolutely NO emojis. Plain text only.';
   }
 
-  // Deduplicated candidate models to ensure seamless, blazing-fast failover across rate limits & availability
+  // Deduplicated candidate models to ensure seamless failover across rate limits & availability
   const uniqueCandidateModels = Array.from(new Set([
     targetModel,
     'gemini-2.0-flash',
@@ -204,7 +202,7 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
       maxOutputTokens: 260
     };
 
-    // For reasoning/thinking models (Gemini 2.5, 3.x), disable thinking tokens to make generation instant!
+    // For reasoning/thinking models (Gemini 2.5, 3.x), disable thinking tokens to make generation instant
     if (/2\.5|3\./i.test(model)) {
       generationConfig.thinkingConfig = { thinkingBudget: 0 };
     }
@@ -224,6 +222,9 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
     const reqStart = Date.now();
+    // Allow 10s for Pro models and 7s for Flash models
+    const timeoutMs = /pro/i.test(model) ? 10000 : 7000;
+
     try {
       console.log(`[Background] Cloud API: Requesting '${model}'...`);
       const response = await fetch(url, {
@@ -233,7 +234,7 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
           'x-goog-api-key': cleanKey
         },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(4000)
+        signal: AbortSignal.timeout(timeoutMs)
       });
 
       if (response.ok) {
@@ -254,12 +255,11 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
       const errJson = await response.json().catch(() => ({}));
       lastErrorDetail = errJson.error?.message || `HTTP ${response.status} ${response.statusText}`;
 
-      // If invalid API key, throw immediately (trying other models with the same invalid key will never succeed)
+      // If invalid API key, throw immediately
       if (response.status === 400 && (lastErrorDetail.includes('API_KEY_INVALID') || lastErrorDetail.includes('not valid') || lastErrorDetail.includes('API key not valid'))) {
         throw new Error(`Google API Key is invalid: ${lastErrorDetail}`);
       }
 
-      // If 429 RPM rate limit, 404 not found, or 503, log warning and let the loop cascade to the next candidate model
       console.warn(`[Background] Model '${model}' failed after ${Date.now() - reqStart}ms (${response.status}: ${lastErrorDetail}). Falling over to next candidate model...`);
     } catch (fetchErr) {
       if (fetchErr.message && (fetchErr.message.includes('API Key is invalid') || fetchErr.message.includes('API key is missing'))) {
@@ -280,7 +280,6 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
     return { valid: false, message: 'API key is empty.' };
   }
 
-  // Gemma models are disabled
   if (requestedModel && /gemma/i.test(requestedModel)) {
     return {
       valid: false,
@@ -293,7 +292,7 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
   try {
     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`, {
       headers: { 'x-goog-api-key': cleanKey },
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(6000)
     });
     if (!listRes.ok) {
       const errData = await listRes.json().catch(() => ({}));
@@ -312,8 +311,11 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
     return { valid: false, message: `Network error verifying key: ${netErr.message}` };
   }
 
-  // At this point, the API key is 100% verified with Google!
   const modelToTest = requestedModel || 'gemini-2.0-flash';
+  const generationConfig = { temperature: 0.7, maxOutputTokens: 20 };
+  if (/2\.5|3\./i.test(modelToTest)) {
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
 
   // Step 2: Test generation with selected model (with graceful RPM/quota handling)
   try {
@@ -327,9 +329,9 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
         },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 20 }
+          generationConfig
         }),
-        signal: AbortSignal.timeout(4000)
+        signal: AbortSignal.timeout(8000)
       }
     );
 
@@ -345,7 +347,6 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
     const errData = await testRes.json().catch(() => ({}));
     const errDetail = errData.error?.message || `HTTP ${testRes.status}`;
 
-    // If 429 RPM rate limit is reached:
     if (testRes.status === 429 || errDetail.includes('quota metric') || errDetail.includes('requests per minute')) {
       return {
         valid: true,
@@ -355,7 +356,6 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
       };
     }
 
-    // If model not found or restricted in region:
     if (testRes.status === 404) {
       const fallback = availableModels.find(m => m.includes('flash') && !m.includes('image')) || 'gemini-2.0-flash';
       return {
@@ -419,7 +419,7 @@ async function setCachedSessionTokens(tokens) {
 async function getHeadlessSessionTokens() {
   const cached = await getCachedSessionTokens();
   if (cached) {
-    return cached;
+    return { ...cached, fromCache: true };
   }
 
   const res = await fetch('https://gemini.google.com/app', {
@@ -448,7 +448,7 @@ async function getHeadlessSessionTokens() {
   };
 
   await setCachedSessionTokens(tokens);
-  return tokens;
+  return { ...tokens, fromCache: false };
 }
 
 async function clearCachedSessionTokens() {
@@ -462,7 +462,7 @@ async function clearCachedSessionTokens() {
   }
 }
 
-async function generateViaHeadless(promptText) {
+async function generateViaHeadless(promptText, retryCount = 0) {
   const tokens = await getHeadlessSessionTokens();
 
   // Modern Batchexecute RPC payload for Gemini
@@ -516,11 +516,15 @@ async function generateViaHeadless(promptText) {
   if (!response.ok) {
     if (response.status === 400 || response.status === 401 || response.status === 403) {
       await clearCachedSessionTokens();
+      if (tokens.fromCache && retryCount < 1) {
+        console.log('[Background] Cached headless token expired, retrying once with fresh token...');
+        return await generateViaHeadless(promptText, retryCount + 1);
+      }
     }
     throw new Error(`Headless Gemini request returned HTTP ${response.status}`);
   }
 
-  // Stream the response body as chunks arrive instead of buffering the whole payload
+  // Stream the response body as chunks arrive
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let rawText = '';
@@ -529,18 +533,21 @@ async function generateViaHeadless(promptText) {
     if (done) break;
     rawText += decoder.decode(value, { stream: true });
   }
-  rawText += decoder.decode(); // flush any remaining bytes
+  rawText += decoder.decode();
 
   const candidate = extractHeadlessReplyText(rawText, promptText);
 
   if (!candidate) {
     await clearCachedSessionTokens();
+    if (tokens.fromCache && retryCount < 1) {
+      console.log('[Background] Empty headless stream with cached token, retrying once...');
+      return await generateViaHeadless(promptText, retryCount + 1);
+    }
     throw new Error('Could not parse text reply from headless stream.');
   }
 
   return candidate;
 }
-
 
 // Robust Batchexecute response extractor for Headless Gemini
 function extractHeadlessReplyText(rawText, promptText = '') {
@@ -550,7 +557,7 @@ function extractHeadlessReplyText(rawText, promptText = '') {
   const lines = rawText.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed.startsWith('[') && !trimmed.startsWith('"[') ) continue;
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('"[')) continue;
 
     try {
       const parsedEnvelope = JSON.parse(trimmed);
@@ -573,7 +580,7 @@ function extractHeadlessReplyText(rawText, promptText = '') {
     } catch (e) {}
   }
 
-  // Strategy C: Regex search for rc_ pattern in rawText (e.g. [\"rc_...\",[\"The answer text...\"])
+  // Strategy C: Regex search for rc_ pattern in rawText
   const rcMatch = rawText.match(/\[\\?"rc_[^"]+\\?",\s*\[\\?"([^"\\]*(?:\\.[^"\\]*)*)\\?"\]/);
   if (rcMatch && rcMatch[1]) {
     try {
@@ -583,11 +590,12 @@ function extractHeadlessReplyText(rawText, promptText = '') {
     }
   }
 
-  // Strategy D: Deep string harvesting (fallback, strictly filtering out JSON containers)
+  // Strategy D: Deep string harvesting (preferring valid tweet-length strings over long reasoning dumps)
   const stringRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
   let m;
-  let maxLen = 0;
-  let candidate = '';
+  let bestTweetCandidate = '';
+  let bestFallbackCandidate = '';
+  let maxFallbackLen = 0;
   const promptSig = promptText.length > 30 ? promptText.substring(0, 30) : promptText;
 
   while ((m = stringRegex.exec(rawText)) !== null) {
@@ -598,32 +606,38 @@ function extractHeadlessReplyText(rawText, promptText = '') {
       unescaped = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
     }
 
+    const trimmedCandidate = unescaped.trim();
     if (
-      unescaped.length > maxLen &&
-      unescaped.length < 3000 &&
-      !unescaped.startsWith('[') &&
-      !unescaped.startsWith('{') &&
-      !unescaped.startsWith('http') &&
-      !unescaped.startsWith('boq_') &&
-      !unescaped.startsWith('rc_') &&
-      !unescaped.startsWith('c_') &&
-      !unescaped.startsWith('r_') &&
-      !unescaped.includes('BardFrontendService') &&
-      !unescaped.includes('SNlM0e') &&
-      !unescaped.includes('FdrFJe') &&
-      !unescaped.includes('cfb2h') &&
-      !unescaped.includes('assistant.lamda') &&
-      !unescaped.includes('generic') &&
-      !unescaped.includes('You are an authentic user') &&
-      !unescaped.includes('You are crafting an authentic Twitter') &&
-      (!promptSig || !unescaped.includes(promptSig))
+      trimmedCandidate.length >= 15 &&
+      trimmedCandidate.length < 3000 &&
+      !trimmedCandidate.startsWith('[') &&
+      !trimmedCandidate.startsWith('{') &&
+      !trimmedCandidate.startsWith('http') &&
+      !trimmedCandidate.startsWith('boq_') &&
+      !trimmedCandidate.startsWith('rc_') &&
+      !trimmedCandidate.startsWith('c_') &&
+      !trimmedCandidate.startsWith('r_') &&
+      !trimmedCandidate.includes('BardFrontendService') &&
+      !trimmedCandidate.includes('SNlM0e') &&
+      !trimmedCandidate.includes('FdrFJe') &&
+      !trimmedCandidate.includes('cfb2h') &&
+      !trimmedCandidate.includes('assistant.lamda') &&
+      !trimmedCandidate.includes('generic') &&
+      !trimmedCandidate.includes('You are an authentic user') &&
+      !trimmedCandidate.includes('You are crafting an authentic Twitter') &&
+      (!promptSig || !trimmedCandidate.includes(promptSig)) &&
+      /\s/.test(trimmedCandidate) // Must contain at least one space (filters out internal IDs/tokens)
     ) {
-      maxLen = unescaped.length;
-      candidate = unescaped;
+      if (trimmedCandidate.length <= 280) {
+        bestTweetCandidate = trimmedCandidate;
+      } else if (trimmedCandidate.length > maxFallbackLen) {
+        maxFallbackLen = trimmedCandidate.length;
+        bestFallbackCandidate = trimmedCandidate;
+      }
     }
   }
 
-  return candidate.trim();
+  return (bestTweetCandidate || bestFallbackCandidate).trim();
 }
 
 function findCandidateByRc(node) {
@@ -748,28 +762,28 @@ async function generateViaWebTab(promptText) {
       callerTab = activeTab;
     } catch (e) {}
 
-    // Open Gemini tab active so Chrome hydrates Angular/Lit at full speed (no background throttling)
+    // Open Gemini tab active so Chrome hydrates Angular/Lit at full speed
     geminiTab = await chrome.tabs.create({
       url: GEMINI_URL,
       active: true
     });
     createdNewTab = true;
-
-    // Wait until Gemini has mounted its prompt input box
-    const isReady = await waitForGeminiTabReady(geminiTab.id, 25000);
-    if (!isReady) {
-      throw new Error('Gemini tab took too long to load. Please ensure you are logged into gemini.google.com/app.');
-    }
-
-    // Immediately restore the caller tab as active so the user stays on Twitter!
-    if (callerTab) {
-      try {
-        await chrome.tabs.update(callerTab.id, { active: true });
-      } catch (e) {}
-    }
   }
 
   try {
+    if (createdNewTab) {
+      const isReady = await waitForGeminiTabReady(geminiTab.id, 25000);
+      // Restore caller tab focus regardless of ready outcome
+      if (callerTab) {
+        try {
+          await chrome.tabs.update(callerTab.id, { active: true });
+        } catch (e) {}
+      }
+      if (!isReady) {
+        throw new Error('Gemini tab took too long to load. Please ensure you are logged into gemini.google.com/app.');
+      }
+    }
+
     const geminiResult = await sendToGeminiTab(geminiTab.id, {
       type: 'EXECUTE_PROMPT',
       prompt: promptText
@@ -779,7 +793,6 @@ async function generateViaWebTab(promptText) {
       throw new Error(geminiResult?.message || 'Gemini encountered an error.');
     }
 
-    // If we opened a temporary tab and auto-close is enabled (default true), close it!
     if (createdNewTab && settings.autoCloseTab !== false) {
       try {
         await chrome.tabs.remove(geminiTab.id);
@@ -788,7 +801,12 @@ async function generateViaWebTab(promptText) {
 
     return geminiResult.reply;
   } catch (err) {
-    if (createdNewTab && settings.autoCloseTab !== false) {
+    if (createdNewTab && callerTab) {
+      try {
+        await chrome.tabs.update(callerTab.id, { active: true });
+      } catch (e) {}
+    }
+    if (createdNewTab && settings.autoCloseTab !== false && geminiTab?.id) {
       try {
         await chrome.tabs.remove(geminiTab.id);
       } catch (e) {}
@@ -801,7 +819,6 @@ async function generateViaWebTab(promptText) {
 // RESILIENT MULTI-ENGINE FALLBACK PIPELINE
 // ==========================================
 async function executeWithFallback(engine, promptText, customInstructions = '', mode = 'reply') {
-  // 1. Try selected engine
   try {
     if (engine === 'nano') {
       const reply = await generateViaNano(promptText, customInstructions, mode);
@@ -821,8 +838,6 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
   } catch (primaryErr) {
     console.warn(`[Background] Primary engine '${engine}' failed:`, primaryErr);
 
-    // If Cloud API failed due to a missing or invalid API key, throw immediately!
-    // Do NOT fall back to other engines or open unexpected tabs when the user needs to configure their key.
     if (engine === 'cloud_api') {
       const isConfigError = /api key.*(?:missing|invalid|not valid)/i.test(primaryErr.message);
       if (isConfigError) {
@@ -830,8 +845,7 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       }
     }
 
-    // A. If primary was cloud_api: try Nano (instant on-device AI) only.
-    // Do NOT fall back to slow Headless (20s) or Web Tab when user explicitly configured Cloud API.
+    // A. If primary was cloud_api: try Nano (instant on-device AI) only
     if (engine === 'cloud_api') {
       try {
         const nanoStatus = await checkNanoStatus();
@@ -843,8 +857,6 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       } catch (nanoErr) {
         console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
       }
-
-      // Throw primary Cloud API error immediately so user sees the real error instead of masking it with 20s delay
       throw primaryErr;
     }
 
@@ -1088,7 +1100,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return sendResponse({ success: true, tabId: geminiTab.id });
       }
 
-      // 3. Generate Reply (Supports All 4 Engines with Smooth Auto-Fallback)
+      // 3. Generate Reply
       if (message.type === 'GENERATE_REPLY') {
         const settings = await chrome.storage.local.get(['engine', 'customInstructions']);
         const engine = settings.engine || 'cloud_api';
@@ -1102,12 +1114,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         return sendResponse({
           success: true,
-          reply: cleanGeneratedReply(result.reply, customInstructions),
+          reply: cleanGeneratedReply(result.reply, customInstructions, 'reply'),
           engine: result.engine
         });
       }
 
-      // 4. Generate New Post (Supports All 4 Engines with Smooth Auto-Fallback)
+      // 4. Generate New Post
       if (message.type === 'GENERATE_POST') {
         const settings = await chrome.storage.local.get(['engine', 'customInstructions']);
         const engine = settings.engine || 'cloud_api';
@@ -1196,20 +1208,20 @@ ${noEmoji ? '- No emojis.\n' : ''}${noHashtags ? '- No hashtags.\n' : ''}
 Reply:`;
 }
 
-// Cleaner for Replies (Robust extraction for Gemma, Gemini, and thinking models)
-function cleanGeneratedReply(rawText, customInstructions = '') {
+// Cleaner for Replies & Posts (Preserves legitimate bulleted tweets under 280 chars)
+function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
   if (!rawText) return '';
   let text = rawText.trim();
 
-  // 1. Detect if model generated a scratchpad, option list, or chain-of-thought analysis
-  const hasScratchpad = /(?:\*+\s*(?:User wants|Original [Tt]weet|Target|Constraints|Tone|Topic|Goal|Category|Platform|Persona|Witty angles|Analyzing|Evaluating|Draft|Thinking|Thought)|Option\s*\d|\*+Option\s*\d)/i.test(text)
-    || (text.split('\n').filter(l => /^\s*[*•-]/.test(l)).length >= 2);
+  // Only treat bullet lists as a scratchpad if text exceeds tweet length (>280 chars) or has explicit scratchpad labels
+  const hasExplicitScratchpadLabels = /(?:\*+\s*(?:User wants|Original [Tt]weet|Target|Constraints|Tone|Topic|Goal|Category|Platform|Persona|Witty angles|Analyzing|Evaluating|Draft|Thinking|Thought)|Option\s*\d|\*+Option\s*\d)/i.test(text);
+  const hasLongBulletScratchpad = text.length > 280 && (text.split('\n').filter(l => /^\s*[*•-]/.test(l)).length >= 2);
+  const hasScratchpad = hasExplicitScratchpadLabels || hasLongBulletScratchpad;
 
   if (hasScratchpad) {
-    // Strategy A: Check for numbered options (e.g. Option 1:, *Option 1:*, **Option 1:**, *Option 4* is quite "Twitter-esque")
+    // Strategy A: Check for numbered options (e.g. Option 1:, **Option 1:**)
     const optionMatches = [...text.matchAll(/(?:^|[\n*•-])\s*\*?\*?Option\s*(\d)\*?:\*?\s*([^\n*]+)/gi)];
     if (optionMatches.length > 0) {
-      // Check if the model praised a specific option at the end
       const praisedMatch = text.match(/Option\s*(\d)[^.\n]*(?:Twitter|best|clever|witty|classic|favorite)/i);
       let chosen = optionMatches[0];
       if (praisedMatch) {
@@ -1222,7 +1234,7 @@ function cleanGeneratedReply(rawText, customInstructions = '') {
       }
     }
 
-    // Strategy B: Check for bulleted quotes (e.g., * "My portfolio is already at its highest level...")
+    // Strategy B: Check for bulleted quotes
     const bulletQuotes = [...text.matchAll(/(?:^|[\n*•-])\s*["“]([^"”\n]{15,260})["”]/g)];
     if (bulletQuotes.length > 0) {
       const validQuotes = bulletQuotes.filter(q => {
@@ -1246,32 +1258,44 @@ function cleanGeneratedReply(rawText, customInstructions = '') {
   return sanitizeTweetOutput(text, customInstructions);
 }
 
-// Universal Tweet Output Sanitizer
+// Universal Tweet Output Sanitizer (Preserves intentional line breaks)
 function sanitizeTweetOutput(text, customInstructions = '') {
   let cleaned = text.trim();
 
   // Strip conversational AI prefixes
-  cleaned = cleaned.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty )?reply:?\s*|twitter reply:?\s*|suggested reply:?\s*|reply:?\s*)/i, '').trim();
+  cleaned = cleaned.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty )?(?:reply|tweet|post):?\s*|twitter (?:reply|post):?\s*|suggested (?:reply|post):?\s*|(?:reply|tweet):?\s*)/i, '').trim();
 
   // Strip outer quotes
   if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith('“') && cleaned.endsWith('”')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
     cleaned = cleaned.slice(1, -1).trim();
   }
 
-  // Strip stray markdown asterisks
+  // Strip stray markdown asterisks at start/end
   cleaned = cleaned.replace(/^\*+\s*/, '').replace(/\s*\*+$/, '').trim();
 
-  // Strip extra internal double-spacing
-  cleaned = cleaned.replace(/\s{2,}/g, ' ');
+  // Collapse multiple horizontal spaces/tabs while preserving intentional line breaks (\n and \n\n)
+  cleaned = cleaned
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
   // Programmatic enforcement if user requested no emoji
   if (hasNoEmojiInstruction(customInstructions)) {
-    cleaned = cleaned.replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '').replace(/\s+([,.!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
+    cleaned = cleaned
+      .replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '')
+      .replace(/[ \t]+([,.!?])/g, '$1')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
   }
 
   // Programmatic enforcement if user requested no hashtags
   if (hasNoHashtagInstruction(customInstructions)) {
-    cleaned = cleaned.replace(/#[A-Za-z0-9_]+/g, '').replace(/\s{2,}/g, ' ').trim();
+    cleaned = cleaned
+      .replace(/#[A-Za-z0-9_]+/g, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
   }
 
   // Limit length to 280 characters cleanly at sentence or word boundary
@@ -1281,8 +1305,8 @@ function sanitizeTweetOutput(text, customInstructions = '') {
     if (lastPunct > 60) {
       cleaned = cut.substring(0, lastPunct + 1).trim();
     } else {
-      const lastSpace = cut.lastIndexOf(' ');
-      cleaned = (lastSpace > 60 ? cut.substring(0, lastSpace) : cut) + '...';
+      const lastSpace = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'));
+      cleaned = (lastSpace > 60 ? cut.substring(0, lastSpace).trim() : cut) + '...';
     }
   }
 
@@ -1353,5 +1377,5 @@ ${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNO
 // Cleaner for New Posts
 function cleanGeneratedPost(rawText, customInstructions = '') {
   if (!rawText) return '';
-  return cleanGeneratedReply(rawText, customInstructions);
+  return cleanGeneratedReply(rawText, customInstructions, 'post');
 }

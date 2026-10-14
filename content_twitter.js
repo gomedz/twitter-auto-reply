@@ -23,9 +23,21 @@ const POST_STYLES = [
   { id: 'thread', label: 'Thread Opener', icon: '🧵', desc: 'Hook introducing a thread' }
 ];
 
+// Single global click listener to close open tone/style menus (prevents detached DOM memory leaks)
+document.addEventListener('click', (e) => {
+  const clickedWrapper = e.target.closest?.('.gemini-reply-wrapper');
+  document.querySelectorAll('.gemini-reply-wrapper').forEach(w => {
+    if (w !== clickedWrapper) {
+      const menu = w.querySelector('.gemini-tone-menu');
+      const arrow = w.querySelector('.gemini-arrow-icon');
+      if (menu) menu.style.display = 'none';
+      if (arrow) arrow.classList.remove('open');
+    }
+  });
+});
+
 // Show floating toast notification on Twitter
 function showToast(message, type = 'info', actionBtn = null) {
-  // Remove existing toast if any
   const existingToast = document.querySelector('.gemini-toast');
   if (existingToast) existingToast.remove();
 
@@ -61,13 +73,14 @@ function showToast(message, type = 'info', actionBtn = null) {
 
 // Find tweet text and author for context
 function extractTweetContext(composerEl) {
-  // Check if inside a modal reply dialog
+  // 1. Check if inside a modal reply dialog (pick the last tweet above the composer in a thread modal)
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
-    const tweetEl = modal.querySelector('article[data-testid="tweet"]');
-    if (tweetEl) {
-      const textEl = tweetEl.querySelector('div[data-testid="tweetText"]');
-      const authorEl = tweetEl.querySelector('div[data-testid="User-Name"]');
+    const tweetEls = modal.querySelectorAll('article[data-testid="tweet"]');
+    if (tweetEls.length > 0) {
+      const targetTweet = tweetEls[tweetEls.length - 1];
+      const textEl = targetTweet.querySelector('div[data-testid="tweetText"]');
+      const authorEl = targetTweet.querySelector('div[data-testid="User-Name"]');
       return {
         text: textEl ? textEl.innerText.trim() : '',
         author: authorEl ? extractAuthorHandle(authorEl) : ''
@@ -75,7 +88,7 @@ function extractTweetContext(composerEl) {
     }
   }
 
-  // If inline reply on status page
+  // 2. If inline reply directly inside an article[data-testid="tweet"]
   const closestTweet = composerEl.closest('article[data-testid="tweet"]');
   if (closestTweet) {
     const textEl = closestTweet.querySelector('div[data-testid="tweetText"]');
@@ -86,29 +99,35 @@ function extractTweetContext(composerEl) {
     };
   }
 
-  // Look above the inline reply container in the DOM tree
+  // 3. Walk all preceding siblings up the DOM tree above the inline reply container
   let current = composerEl;
   while (current && current !== document.body) {
-    const prevTweet = current.previousElementSibling?.querySelector?.('article[data-testid="tweet"]')
-      || (current.previousElementSibling?.matches?.('article[data-testid="tweet"]') ? current.previousElementSibling : null);
-
-    if (prevTweet) {
-      const textEl = prevTweet.querySelector('div[data-testid="tweetText"]');
-      const authorEl = prevTweet.querySelector('div[data-testid="User-Name"]');
-      const text = textEl ? textEl.innerText.trim() : '';
-      if (text) {
-        return {
-          text: text,
-          author: authorEl ? extractAuthorHandle(authorEl) : ''
-        };
+    let prev = current.previousElementSibling;
+    while (prev) {
+      const tweetMatches = prev.matches?.('article[data-testid="tweet"]')
+        ? [prev]
+        : Array.from(prev.querySelectorAll?.('article[data-testid="tweet"]') || []);
+      if (tweetMatches.length > 0) {
+        const targetTweet = tweetMatches[tweetMatches.length - 1];
+        const textEl = targetTweet.querySelector('div[data-testid="tweetText"]');
+        const authorEl = targetTweet.querySelector('div[data-testid="User-Name"]');
+        const text = textEl ? textEl.innerText.trim() : '';
+        if (text) {
+          return {
+            text: text,
+            author: authorEl ? extractAuthorHandle(authorEl) : ''
+          };
+        }
       }
+      prev = prev.previousElementSibling;
     }
     current = current.parentElement;
   }
 
-  // Fallback to the main tweet only on an individual tweet status page
+  // 4. Fallback to the focal/main tweet on an individual tweet status page
   if (window.location.pathname.includes('/status/')) {
-    const mainTweet = document.querySelector('article[data-testid="tweet"]');
+    const mainTweet = document.querySelector('article[data-testid="tweet"][tabindex="-1"]')
+      || document.querySelector('article[data-testid="tweet"]');
     if (mainTweet) {
       const textEl = mainTweet.querySelector('div[data-testid="tweetText"]');
       const authorEl = mainTweet.querySelector('div[data-testid="User-Name"]');
@@ -131,14 +150,12 @@ function extractAuthorHandle(authorEl) {
 
 // Locate the DraftJS contenteditable editor associated with this composer
 function findAssociatedEditor(composerEl) {
-  // 1. Check if inside a modal reply dialog
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
     const editor = modal.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
     if (editor) return editor;
   }
 
-  // 2. Look in parent containers up the DOM tree (up to 8 levels)
   let parent = composerEl.parentElement;
   let levels = 0;
   while (parent && parent !== document.body && levels < 8) {
@@ -148,43 +165,42 @@ function findAssociatedEditor(composerEl) {
     levels++;
   }
 
-  // 3. Fallback to any visible editor on page
   return document.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
 }
 
-// Insert reply or post text into Twitter's Draft.js editor cleanly.
-// Uses DOM Range selection + selectionchange sync + synthetic ClipboardEvent('paste')
-// which Draft.js natively intercepts via editOnPaste. Because Draft.js calls e.preventDefault(),
-// the browser never inserts a duplicate DOM node, preventing the double-pasting bug while keeping
-// Draft.js's immutable state, valid block structures, native cursor offset, and active Post/Reply
-// button intact so the text remains 100% editable (Enter, Backspace, Delete).
-function insertTextIntoEditor(editor, text) {
+// Insert reply or post text into Twitter's Draft.js editor cleanly (Async to allow React/Draft.js state sync)
+async function insertTextIntoEditor(editor, text) {
   if (!editor || !text) return false;
 
-  // Prevent duplicate insertion if editor already contains the exact text
   const currentContent = (editor.innerText || editor.textContent || '').trim();
   if (currentContent === text.trim()) return true;
 
   editor.focus();
 
-  // Step 1: Select all existing content in DOM and sync Draft.js selection state
-  try {
-    const sel = window.getSelection();
-    if (sel) {
-      const range = document.createRange();
-      range.selectNodeContents(editor);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      document.dispatchEvent(new Event('selectionchange'));
-    }
-  } catch (e) {}
+  // Step 1: Select all existing content and allow Draft.js to sync its internal SelectionState
+  if (currentContent.length > 0) {
+    try {
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.dispatchEvent(new Event('selectionchange'));
+      }
+      document.execCommand('selectAll', false, null);
+    } catch (e) {}
 
-  try {
-    document.execCommand('selectAll', false, null);
-  } catch (e) {}
+    await new Promise(r => setTimeout(r, 25));
 
-  // Step 2: Dispatch synthetic paste event. Draft.js handles this natively in its
-  // React event system, inserting the text exactly once without browser duplication.
+    try {
+      document.execCommand('delete', false, null);
+    } catch (e) {}
+
+    await new Promise(r => setTimeout(r, 20));
+  }
+
+  // Step 2: Dispatch synthetic paste event for Draft.js editOnPaste handler
   try {
     const dt = new DataTransfer();
     dt.setData('text/plain', text);
@@ -195,22 +211,25 @@ function insertTextIntoEditor(editor, text) {
     }));
   } catch (e) {}
 
-  // Verification step: verify whether paste event successfully updated content
+  // Allow React 18 to flush DOM updates before verifying insertion
+  await new Promise(r => setTimeout(r, 40));
+
   let updatedContent = (editor.innerText || editor.textContent || '').trim();
-  if (!updatedContent || updatedContent === currentContent) {
-    // Fallback: try execCommand('insertText')
+  const textSample = text.trim().substring(0, Math.min(20, text.trim().length));
+
+  if (!updatedContent || !updatedContent.includes(textSample)) {
     try {
       document.execCommand('insertText', false, text);
     } catch (e) {}
+    await new Promise(r => setTimeout(r, 25));
     updatedContent = (editor.innerText || editor.textContent || '').trim();
   }
 
-  // Step 3: Dispatch input and change events so Twitter's React character counter
-  // and Post/Reply buttons update their active state.
+  // Step 3: Dispatch input and change events so Twitter's React state updates
   editor.dispatchEvent(new Event('input', { bubbles: true }));
   editor.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // Step 4: Ensure cursor is cleanly positioned at the end after Draft.js renders
+  // Step 4: Place cursor cleanly at the end
   setTimeout(() => {
     try {
       editor.focus();
@@ -224,12 +243,9 @@ function insertTextIntoEditor(editor, text) {
         document.dispatchEvent(new Event('selectionchange'));
       }
     } catch (e) {}
-  }, 50);
+  }, 40);
 
-  // Return true if editor actually received the text, or false so clipboard fallback triggers
-  const textSample = text.trim().substring(0, Math.min(20, text.trim().length));
-  const isInserted = !!updatedContent && (updatedContent === text.trim() || updatedContent.includes(textSample));
-  return isInserted;
+  return !!updatedContent && (updatedContent === text.trim() || updatedContent.includes(textSample));
 }
 
 // Handle generating reply for a selected tone
@@ -252,7 +268,6 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
     return;
   }
 
-  // Update button state to loading
   const originalHtml = actionBtnEl.innerHTML;
   containerEl.classList.add('loading');
   actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ Gemini...</span>`;
@@ -296,7 +311,7 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
     const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
     const engineLabel = response?.engine ? ` via ${response.engine}` : '';
     const replyText = response.reply;
-    const inserted = insertTextIntoEditor(editor, replyText);
+    const inserted = await insertTextIntoEditor(editor, replyText);
 
     if (inserted) {
       showToast(`✦ Reply generated${engineLabel} in ${durationSec}s!`, 'success');
@@ -320,37 +335,32 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
 
 // Determine whether a composer is for replying to a tweet or creating a new post
 function detectComposerType(composerEl) {
-  // 1. Inside a modal dialog?
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
-    // If the modal has a parent tweet container, it's a reply dialog
     const hasParentTweet = !!modal.querySelector('article[data-testid="tweet"]');
     return hasParentTweet ? 'reply' : 'new_post';
   }
 
-  // 2. Inside a tweet article? (inline reply directly attached to a tweet)
   if (composerEl.closest('article[data-testid="tweet"]')) {
     return 'reply';
   }
 
-  // 3. Status page: if on a specific /status/ URL, the primary inline composer is a reply
   if (window.location.pathname.includes('/status/')) {
     return 'reply';
   }
 
-  // 4. Preceding sibling check: see if there's a tweet card directly preceding in the DOM tree
   let current = composerEl;
   while (current && current !== document.body) {
-    const prev = current.previousElementSibling;
-    if (prev) {
+    let prev = current.previousElementSibling;
+    while (prev) {
       if (prev.matches?.('article[data-testid="tweet"]') || prev.querySelector?.('article[data-testid="tweet"]')) {
         return 'reply';
       }
+      prev = prev.previousElementSibling;
     }
     current = current.parentElement;
   }
 
-  // Otherwise (e.g. Home timeline top composer, standalone compose page)
   return 'new_post';
 }
 
@@ -358,7 +368,6 @@ function detectComposerType(composerEl) {
 function showPostPromptPopover(wrapper, composerToolbar, defaultStyle = 'engaging') {
   if (!wrapper) return;
 
-  // Remove any existing popover
   const existingPopover = document.querySelector('.gemini-post-popover');
   if (existingPopover) {
     existingPopover.remove();
@@ -367,7 +376,6 @@ function showPostPromptPopover(wrapper, composerToolbar, defaultStyle = 'engagin
   const popover = document.createElement('div');
   popover.className = 'gemini-post-popover';
 
-  // Popover Header
   const header = document.createElement('div');
   header.className = 'gemini-popover-header';
   header.innerHTML = `
@@ -399,7 +407,6 @@ function showPostPromptPopover(wrapper, composerToolbar, defaultStyle = 'engagin
   });
   header.appendChild(btnClose);
 
-  // Popover Body
   const body = document.createElement('div');
   body.className = 'gemini-popover-body';
 
@@ -408,7 +415,6 @@ function showPostPromptPopover(wrapper, composerToolbar, defaultStyle = 'engagin
   textarea.placeholder = 'What should this post be about? (e.g. "3 lessons from building in public in 2026")';
   textarea.rows = 2;
 
-  // Popover Footer with Style Selector & Submit
   const footer = document.createElement('div');
   footer.className = 'gemini-popover-footer';
 
@@ -489,7 +495,6 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
   const currentDraft = (editor.innerText || editor.textContent || '').trim();
   const wrapper = composerToolbar.querySelector('.gemini-reply-wrapper') || containerEl.closest('.gemini-reply-wrapper');
 
-  // If no custom topic provided and the editor is empty, open the topic prompt popover
   if (!customTopic && !currentDraft) {
     delete containerEl.dataset.busy;
     showPostPromptPopover(wrapper, composerToolbar, styleId);
@@ -500,7 +505,6 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
   const topicOrDraft = customTopic || currentDraft;
   const isDraft = !customTopic && !!currentDraft;
 
-  // Update button state to loading
   const originalHtml = actionBtnEl.innerHTML;
   containerEl.classList.add('loading');
   actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ Gemini...</span>`;
@@ -541,7 +545,7 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
     }
 
     const postText = response.post;
-    const inserted = insertTextIntoEditor(editor, postText);
+    const inserted = await insertTextIntoEditor(editor, postText);
 
     if (inserted) {
       showToast(isDraft ? '✦ Tweet polished and updated!' : '✦ New post generated and inserted!', 'success');
@@ -570,11 +574,11 @@ function createGeminiReplyElement(composerToolbar) {
 
   const wrapper = document.createElement('div');
   wrapper.className = `gemini-reply-wrapper ${isPost ? 'mode-post' : 'mode-reply'}`;
+  wrapper.dataset.composerMode = composerType;
 
   const splitBtn = document.createElement('div');
   splitBtn.className = 'gemini-reply-btn';
 
-  // Primary action button
   const btnMain = document.createElement('button');
   btnMain.type = 'button';
   btnMain.className = 'gemini-reply-action';
@@ -586,11 +590,9 @@ function createGeminiReplyElement(composerToolbar) {
     <span>${isPost ? 'AI Post' : 'AI Reply'}</span>
   `;
 
-  // Visual divider
   const divider = document.createElement('div');
   divider.className = 'gemini-reply-divider';
 
-  // Arrow trigger button
   const btnArrow = document.createElement('button');
   btnArrow.type = 'button';
   btnArrow.className = 'gemini-reply-arrow';
@@ -601,7 +603,6 @@ function createGeminiReplyElement(composerToolbar) {
   splitBtn.appendChild(divider);
   splitBtn.appendChild(btnArrow);
 
-  // Dropdown menu
   const menu = document.createElement('div');
   menu.className = 'gemini-tone-menu';
   menu.style.display = 'none';
@@ -614,7 +615,6 @@ function createGeminiReplyElement(composerToolbar) {
   const arrowSpan = btnArrow.querySelector('.gemini-arrow-icon');
 
   if (isPost) {
-    // For new posts: provide an explicit "Enter Topic / Prompt..." item
     const promptItem = document.createElement('div');
     promptItem.className = 'gemini-tone-item gemini-tone-item-prompt';
     promptItem.innerHTML = `
@@ -652,7 +652,6 @@ function createGeminiReplyElement(composerToolbar) {
       menu.appendChild(item);
     });
   } else {
-    // Reply tones
     TONES.forEach(tone => {
       const item = document.createElement('div');
       item.className = 'gemini-tone-item';
@@ -673,7 +672,6 @@ function createGeminiReplyElement(composerToolbar) {
     });
   }
 
-  // Clicking main button generates with user preferred setting
   btnMain.addEventListener('click', async (e) => {
     e.stopPropagation();
     if (splitBtn.dataset.busy === 'true' || splitBtn.classList.contains('loading')) return;
@@ -705,7 +703,6 @@ function createGeminiReplyElement(composerToolbar) {
     }
   });
 
-  // Clicking arrow button toggles tone/style menu
   btnArrow.addEventListener('click', (e) => {
     e.stopPropagation();
     if (splitBtn.classList.contains('loading')) return;
@@ -715,14 +712,12 @@ function createGeminiReplyElement(composerToolbar) {
       menu.style.display = 'none';
       arrowSpan.classList.remove('open');
     } else {
-      // Close other open menus
       document.querySelectorAll('.gemini-tone-menu').forEach(m => m.style.display = 'none');
       document.querySelectorAll('.gemini-arrow-icon').forEach(a => a.classList.remove('open'));
 
       menu.style.display = 'flex';
       arrowSpan.classList.add('open');
 
-      // Ensure menu remains safely within viewport horizontally
       const rect = menu.getBoundingClientRect();
       if (rect.right > window.innerWidth - 12) {
         menu.style.right = '0px';
@@ -732,7 +727,6 @@ function createGeminiReplyElement(composerToolbar) {
         menu.style.right = 'auto';
       }
 
-      // Dynamically calculate available vertical space above button to prevent top clipping
       const btnRect = splitBtn.getBoundingClientRect();
       const modal = composerToolbar.closest('div[role="dialog"]');
       const topLimit = modal ? modal.getBoundingClientRect().top + 10 : 12;
@@ -746,43 +740,38 @@ function createGeminiReplyElement(composerToolbar) {
     }
   });
 
-  // Close menu when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!wrapper.contains(e.target)) {
-      menu.style.display = 'none';
-      arrowSpan.classList.remove('open');
-    }
-  });
-
   wrapper.appendChild(splitBtn);
   wrapper.appendChild(menu);
 
   return wrapper;
 }
 
-// Check and inject button into Twitter composers
+// Check and inject button into Twitter composers (and update if composer context changed)
 function injectGeminiButtons() {
-  // Find all Twitter toolbars in reply/compose areas
   const toolbars = document.querySelectorAll('div[data-testid="toolBar"]');
 
   toolbars.forEach(toolbar => {
-    // If already contains the Gemini button, skip
-    if (toolbar.querySelector('.gemini-reply-wrapper')) return;
+    const existingWrapper = toolbar.querySelector('.gemini-reply-wrapper');
+    if (existingWrapper) {
+      const currentMode = detectComposerType(toolbar);
+      if (existingWrapper.dataset.composerMode === currentMode) {
+        return;
+      }
+      // Mode changed (e.g., SPA route change or parent tweet hydrated after toolbar), rebuild button
+      existingWrapper.replaceWith(createGeminiReplyElement(toolbar));
+      return;
+    }
 
     toolbar.setAttribute('data-gemini-injected', 'true');
 
-    // Find the rightmost action container (usually has tweetButtonInline or tweetButton)
     const tweetButton = toolbar.querySelector('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]');
-
     const geminiElement = createGeminiReplyElement(toolbar);
 
     if (tweetButton && tweetButton.parentElement) {
-      // If tweetButton is inside an inner button wrapper, insert before that wrapper
-      // on the toolbar's horizontal row rather than inside the vertical button wrapper.
       let insertTarget = tweetButton;
-      while (insertTarget.parentElement && 
-             insertTarget.parentElement !== toolbar && 
-             insertTarget.parentElement.parentElement && 
+      while (insertTarget.parentElement &&
+             insertTarget.parentElement !== toolbar &&
+             insertTarget.parentElement.parentElement &&
              insertTarget.parentElement.parentElement !== toolbar) {
         insertTarget = insertTarget.parentElement;
       }
@@ -792,7 +781,6 @@ function injectGeminiButtons() {
         tweetButton.parentElement.insertBefore(geminiElement, tweetButton);
       }
     } else {
-      // Append to the toolbar
       toolbar.appendChild(geminiElement);
     }
   });
@@ -804,7 +792,6 @@ const observer = new MutationObserver(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     injectGeminiButtons();
-    // Re-attach HUD if Twitter SPA rerender removed it
     if (floatingHudEl && document.body && !document.body.contains(floatingHudEl)) {
       document.body.appendChild(floatingHudEl);
     }
@@ -836,7 +823,7 @@ let floatingHudEl = null;
 async function initFloatingHud() {
   try {
     const settings = await chrome.storage.local.get(['showFloatingHud', 'defaultTone', 'defaultPostStyle']);
-    const showFloatingHud = settings.showFloatingHud !== false; // Default true unless explicitly false
+    const showFloatingHud = settings.showFloatingHud !== false;
     const defaultTone = settings.defaultTone || 'quick';
     const defaultPostStyle = settings.defaultPostStyle || 'engaging';
 
@@ -864,16 +851,16 @@ async function initFloatingHud() {
 }
 
 function clampHudPosition(hudEl) {
-  if (!hudEl.style.left || !hudEl.style.top) return;
-  const hudWidth = hudEl.offsetWidth || 310;
-  const hudHeight = hudEl.offsetHeight || 120;
+  if (!hudEl) return;
   const rect = hudEl.getBoundingClientRect();
+  const hudWidth = hudEl.offsetWidth || rect.width || 310;
+  const hudHeight = hudEl.offsetHeight || rect.height || 120;
 
   let newLeft = rect.left;
   let newTop = rect.top;
   let adjusted = false;
 
-  const rightMargin = 20; // Padding from right edge so pill is not cut off
+  const rightMargin = 20;
   const leftMargin = 12;
   const topMargin = 12;
   const bottomMargin = 16;
@@ -898,6 +885,8 @@ function clampHudPosition(hudEl) {
   if (adjusted) {
     hudEl.style.left = `${newLeft}px`;
     hudEl.style.top = `${newTop}px`;
+    hudEl.style.bottom = 'auto';
+    hudEl.style.right = 'auto';
   }
 }
 
@@ -907,18 +896,11 @@ function makeDraggable(handleEl, hudEl, onClickWhenNotDragged = null) {
   let isDragging = false;
   let pointerId = null;
 
-  const getHudLeft = () => {
-    const rect = hudEl.getBoundingClientRect();
-    return rect.left;
-  };
-  const getHudTop = () => {
-    const rect = hudEl.getBoundingClientRect();
-    return rect.top;
-  };
+  const getHudLeft = () => hudEl.getBoundingClientRect().left;
+  const getHudTop = () => hudEl.getBoundingClientRect().top;
 
   handleEl.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
-    // Don't start drag if clicking on interactive child elements
     if (e.target.closest('button, select, textarea, input, .gemini-hud-engine-chip, .gemini-hud-pill-expand-btn')) return;
 
     e.preventDefault();
@@ -944,7 +926,7 @@ function makeDraggable(handleEl, hudEl, onClickWhenNotDragged = null) {
       if (isDragging) {
         const hudW = hudEl.offsetWidth;
         const hudH = hudEl.offsetHeight;
-        const rightMargin = 20; // Padding from right edge so pill is not cut off
+        const rightMargin = 20;
         const leftMargin = 12;
         const topMargin = 12;
         const bottomMargin = 16;
@@ -987,7 +969,6 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   hud.id = 'gemini-floating-hud';
   hud.className = 'gemini-hud-collapsed';
 
-  // Restore position if previously saved
   try {
     const savedPos = localStorage.getItem('gemini_hud_pos');
     if (savedPos) {
@@ -1003,43 +984,36 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
     }
   } catch (err) {}
 
-  // Collapsed Pill View — simple, no engine chips
   const pill = document.createElement('div');
   pill.className = 'gemini-hud-pill';
   pill.title = 'Drag to move — click ❯ to expand';
 
-  // Drag icon
   const pillDragIcon = document.createElement('span');
   pillDragIcon.className = 'gemini-hud-pill-drag';
   pillDragIcon.textContent = '⠿';
   pillDragIcon.title = 'Drag to reposition';
 
-  // Sparkle + label
   const pillBadge = document.createElement('div');
   pillBadge.className = 'gemini-hud-pill-badge';
   pillBadge.innerHTML = `<span class="gemini-sparkle-icon">✦</span><span class="gemini-hud-pill-text">Gemini AI</span>`;
 
-  // Status dot
   const pillDotEl = document.createElement('span');
   pillDotEl.className = 'gemini-hud-status-dot';
   pillDotEl.id = 'gemini-hud-pill-dot';
   pillDotEl.title = 'Engine status';
 
-  // Expand button (chevron)
   const expandBtn = document.createElement('button');
   expandBtn.type = 'button';
   expandBtn.className = 'gemini-hud-pill-expand-btn';
   expandBtn.innerHTML = '❯';
   expandBtn.title = 'Expand HUD';
   expandBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
-  // expand is wired after expandHud() is defined below
 
   pill.appendChild(pillDragIcon);
   pill.appendChild(pillBadge);
   pill.appendChild(pillDotEl);
   pill.appendChild(expandBtn);
 
-  // Engine definitions (used in card body)
   const ENGINES = [
     { id: 'nano',      label: 'Nano',      cls: 'nano-active' },
     { id: 'cloud_api', label: 'Cloud API', cls: 'cloud-active' },
@@ -1048,11 +1022,9 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   ];
   let currentEngine = 'cloud_api';
 
-  // Expanded Card View
   const card = document.createElement('div');
   card.className = 'gemini-hud-card';
 
-  // Card Header
   const header = document.createElement('div');
   header.className = 'gemini-hud-header';
   header.id = 'gemini-hud-header-drag';
@@ -1068,11 +1040,9 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
     </div>
   `;
 
-  // Card Body
   const body = document.createElement('div');
   body.className = 'gemini-hud-body';
 
-  // Engine status row
   const statusBar = document.createElement('div');
   statusBar.className = 'gemini-hud-status-bar';
   statusBar.innerHTML = `
@@ -1080,7 +1050,6 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
     <span class="gemini-hud-status-text" id="gemini-hud-status-text">Checking AI engine...</span>
   `;
 
-  // Engine selector row (Nano / Headless / Web)
   const engineRow = document.createElement('div');
   engineRow.className = 'gemini-hud-engine-row';
 
@@ -1124,16 +1093,13 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
 
   engineRow.appendChild(engineChips);
 
-  // Load saved engine
   chrome.storage.local.get(['engine']).then(s => {
     setActiveChip(s.engine || 'cloud_api');
   }).catch(() => setActiveChip('cloud_api'));
 
-  // Quick tone & style selectors row
   const rowSelectors = document.createElement('div');
   rowSelectors.className = 'gemini-hud-row';
 
-  // Tone selector column
   const colTone = document.createElement('div');
   colTone.className = 'gemini-hud-col';
   colTone.innerHTML = `<label class="gemini-hud-label">Reply Tone</label>`;
@@ -1156,7 +1122,6 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   });
   colTone.appendChild(selectTone);
 
-  // Post style selector column
   const colStyle = document.createElement('div');
   colStyle.className = 'gemini-hud-col';
   colStyle.innerHTML = `<label class="gemini-hud-label">Post Style</label>`;
@@ -1182,7 +1147,6 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   rowSelectors.appendChild(colTone);
   rowSelectors.appendChild(colStyle);
 
-  // Custom Prompt Instructions
   const instructionsBox = document.createElement('div');
   instructionsBox.className = 'gemini-hud-instructions';
   instructionsBox.innerHTML = `
@@ -1196,7 +1160,6 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   const textareaInstructions = instructionsBox.querySelector('#gemini-hud-instructions-input');
   const btnSaveInstructions = instructionsBox.querySelector('#gemini-hud-save-btn');
 
-  // Load existing custom instructions
   chrome.storage.local.get(['customInstructions']).then(s => {
     if (s && s.customInstructions !== undefined) {
       textareaInstructions.value = s.customInstructions;
@@ -1227,7 +1190,6 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
     }
   });
 
-  // Quick Post Drafter
   const drafter = document.createElement('div');
   drafter.className = 'gemini-hud-drafter';
   drafter.innerHTML = `
@@ -1269,7 +1231,6 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   floatingHudEl = hud;
   console.log('[Twitter-AI] Floating HUD widget mounted to page successfully.');
 
-  // Toggle Collapse / Expand
   const expandHud = () => {
     hud.classList.remove('gemini-hud-collapsed');
     hud.classList.add('gemini-hud-expanded');
@@ -1286,7 +1247,6 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
     clampHudPosition(hud);
   };
 
-  // Wire buttons
   const btnCollapse = header.querySelector('#gemini-hud-collapse-btn');
   btnCollapse.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1299,23 +1259,17 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
     updateEngineStatusBadge(hud);
   });
 
-  // Make Pill draggable — clicking expand btn or anywhere else without dragging shows no expand
-  // (expand is triggered only via the ❯ button)
   makeDraggable(pill, hud, null);
 
-  // Wire expand button after expandHud is defined
   expandBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     expandHud();
   });
 
-  // Make Header draggable
   makeDraggable(header, hud, null);
 
-  // Expose setActiveChip so global storage listener can update chips without duplicating listeners
   hud.setActiveChip = setActiveChip;
 
-  // Initial engine status check
   updateEngineStatusBadge(hud);
 }
 
@@ -1369,7 +1323,6 @@ async function handleHudDraft(hudEl) {
 
   const chosenStyle = styleSelect ? styleSelect.value : 'engaging';
 
-  // Set loading state
   draftBtn.classList.add('loading');
   const originalText = draftText.textContent;
   draftText.innerHTML = `<span class="gemini-spinner"></span> Generating...`;
@@ -1414,11 +1367,9 @@ async function handleHudDraft(hudEl) {
     const engineLabel = response?.engine ? ` via ${response.engine}` : '';
     const postContent = response.post;
 
-    // 1. Look for existing modal or timeline composer editor
     let editor = document.querySelector('div[role="dialog"] div[data-testid^="tweetTextarea_"][role="textbox"], div[role="dialog"] div[role="textbox"][contenteditable="true"]')
       || document.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
 
-    // 2. If no editor open, click Twitter's compose button
     if (!editor) {
       const composeBtn = document.querySelector(
         'a[data-testid="SideNav_NewTweet_Button"], ' +
@@ -1428,7 +1379,6 @@ async function handleHudDraft(hudEl) {
       );
       if (composeBtn) {
         composeBtn.click();
-        // Wait up to 1.5s for editor to mount
         for (let i = 0; i < 15; i++) {
           await new Promise(r => setTimeout(r, 100));
           editor = document.querySelector('div[role="dialog"] div[data-testid^="tweetTextarea_"][role="textbox"], div[role="dialog"] div[role="textbox"][contenteditable="true"]')
@@ -1439,15 +1389,13 @@ async function handleHudDraft(hudEl) {
     }
 
     if (editor) {
-      insertTextIntoEditor(editor, postContent);
+      await insertTextIntoEditor(editor, postContent);
       showToast(`✦ Tweet drafted${engineLabel} in ${durationSec}s!`, 'success');
       if (textarea) textarea.value = '';
-      // Collapse HUD after drafting
       hudEl.classList.remove('gemini-hud-expanded');
       hudEl.classList.add('gemini-hud-collapsed');
       clampHudPosition(hudEl);
     } else {
-      // Fallback: Copy to clipboard
       try {
         await navigator.clipboard.writeText(postContent);
         showToast(`✦ Tweet drafted${engineLabel} in ${durationSec}s (copied to clipboard)!`, 'success');
@@ -1502,19 +1450,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// Message listener for direct commands from popup
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'TOGGLE_FLOATING_HUD') {
-    if (message.enabled) {
-      initFloatingHud();
-    } else if (floatingHudEl) {
-      floatingHudEl.remove();
-      floatingHudEl = null;
-    }
-    sendResponse({ success: true });
-  }
-});
-
 // Keep HUD in viewport on browser resize
 let hudResizeTimer = null;
 window.addEventListener('resize', () => {
@@ -1526,5 +1461,3 @@ window.addEventListener('resize', () => {
 
 // Initialize HUD on load
 initFloatingHud();
-
-
