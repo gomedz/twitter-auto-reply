@@ -90,7 +90,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const currentEngine = settings.engine || 'cloud_api';
   setEngineUI(currentEngine);
 
-  if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
+if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
   if (settings.defaultPostStyle && defaultPostStyleSelect) defaultPostStyleSelect.value = settings.defaultPostStyle;
   if (settings.defaultPostStyle && postStyleSelect) postStyleSelect.value = settings.defaultPostStyle;
   if (settings.customInstructions !== undefined) customInstructionsEl.value = settings.customInstructions;
@@ -99,12 +99,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     floatingHudToggle.checked = settings.showFloatingHud !== false;
   }
   if (settings.apiKey && cloudApiKeyInput) cloudApiKeyInput.value = settings.apiKey;
-  if (settings.cloudModel && cloudModelSelect) {
-    if (/gemma/i.test(settings.cloudModel) || settings.cloudModel === 'gemini-3.1-flash-lite') {
-      settings.cloudModel = 'gemini-2.0-flash';
-      await chrome.storage.local.set({ cloudModel: 'gemini-2.0-flash' });
+  if (cloudModelSelect) {
+    let savedModel = settings.cloudModel || 'gemini-3.5-flash-lite';
+    if (/gemma|1\.5|2\.0|2\.5-flash-lite/i.test(savedModel)) {
+      savedModel = 'gemini-3.5-flash-lite';
+      await chrome.storage.local.set({ cloudModel: savedModel });
     }
-    cloudModelSelect.value = settings.cloudModel || 'gemini-2.0-flash';
+    cloudModelSelect.value = savedModel;
   }
 
   // Purge any legacy Gemma options from dropdown
@@ -270,7 +271,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnTestCloudKey) {
     btnTestCloudKey.addEventListener('click', async () => {
       const keyVal = cloudApiKeyInput ? cloudApiKeyInput.value.trim() : '';
-      const modelVal = cloudModelSelect ? cloudModelSelect.value : 'gemini-2.0-flash';
+      const modelVal = cloudModelSelect ? cloudModelSelect.value : 'gemini-3.5-flash-lite';
 
       if (!keyVal) {
         if (cloudKeyStatus) {
@@ -312,7 +313,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
           const finalModel = (resp.model && !/gemma/i.test(resp.model))
             ? resp.model
-            : (cloudModelSelect && !/gemma/i.test(cloudModelSelect.value) ? cloudModelSelect.value : 'gemini-2.0-flash');
+            : (cloudModelSelect && !/gemma/i.test(cloudModelSelect.value) ? cloudModelSelect.value : 'gemini-3.5-flash-lite');
 
           await chrome.storage.local.set({
             apiKey: keyVal,
@@ -393,7 +394,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Test reply generation
+// Test reply generation (strictly tests the selected engine without fallback)
   btnTest.addEventListener('click', async () => {
     const text = testInput.value.trim();
     if (!text) {
@@ -401,10 +402,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    const selectedRadio = document.querySelector('input[name="engine"]:checked');
+    const selectedEngine = selectedRadio ? selectedRadio.value : 'cloud_api';
+
     btnTest.disabled = true;
     btnTest.textContent = 'Generating...';
     testOutput.style.display = 'block';
-    testOutput.textContent = 'Querying active AI engine...';
+    testOutput.textContent = `Testing [${selectedEngine}] engine (fallback disabled for test)...`;
 
     try {
       const response = await new Promise((resolve) => {
@@ -413,7 +417,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           payload: {
             tweetText: text,
             tweetAuthor: 'TestUser',
-            tone: defaultToneSelect.value
+            tone: defaultToneSelect.value,
+            engineOverride: selectedEngine,
+            disableFallback: true
           }
         }, resolve);
       });
@@ -421,7 +427,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (response && response.success) {
         testOutput.textContent = '';
         const titleEl = document.createElement('strong');
-        titleEl.textContent = `✦ [${response.engine || 'Engine'}] Reply:`;
+        titleEl.textContent = `✦ [${response.engine || selectedEngine}] Reply:`;
         const brEl = document.createElement('br');
         const replyEl = document.createElement('span');
         replyEl.textContent = `"${response.reply}"`;
@@ -429,10 +435,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         testOutput.appendChild(brEl);
         testOutput.appendChild(replyEl);
       } else {
-        testOutput.textContent = `❌ Error: ${response?.message || response?.error || 'Failed to generate response.'}`;
+        testOutput.textContent = `❌ [${selectedEngine}] Error: ${response?.message || response?.error || 'Failed to generate response.'}`;
       }
     } catch (err) {
-      testOutput.textContent = `❌ Error: ${err.message}`;
+      testOutput.textContent = `❌ [${selectedEngine}] Error: ${err.message}`;
     } finally {
       btnTest.disabled = false;
       btnTest.textContent = 'Generate';

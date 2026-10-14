@@ -1,7 +1,7 @@
 // background.js - Multi-Engine Service Worker for Twitter AI Auto Reply
 // Supports:
 // 1. 'nano': Chrome Built-in Gemini Nano (0 tabs, local GPU, Prompt API)
-// 2. 'cloud_api': Google Gemini Cloud REST API (0 tabs, free API key, 1.5-flash / 2.0-flash / 1.5-pro)
+// 2. 'cloud_api': Google Gemini Cloud REST API (0 tabs, free API key, 3.5-flash-lite / 3.6-flash / 3.8-flash / 2.5-flash)
 // 3. 'headless': Direct Web Request with Google Cookies (0 tabs, background fetch)
 // 4. 'web_tab': Gemini Web Tab DOM Automation (with optional auto-close)
 
@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS = {
   autoCloseTab: true,
   showFloatingHud: true,
   apiKey: '',
-  cloudModel: 'gemini-2.0-flash',
+  cloudModel: 'gemini-3.5-flash-lite',
   cloudApiVersion: 'v1beta'
 };
 
@@ -29,6 +29,10 @@ async function setupExtension() {
     if (existing[k] === undefined) {
       toSet[k] = v;
     }
+  }
+  // Auto-migrate retired models (1.5, 2.0, 2.5-flash-lite) to gemini-3.5-flash-lite
+  if (existing.cloudModel && /gemma|1\.5|2\.0|2\.5-flash-lite/i.test(existing.cloudModel)) {
+    toSet.cloudModel = 'gemini-3.5-flash-lite';
   }
   if (Object.keys(toSet).length > 0) {
     await chrome.storage.local.set(toSet);
@@ -100,7 +104,6 @@ async function ensureOffscreenDocument() {
   }
 }
 
-// Check Nano availability
 async function checkNanoStatus() {
   try {
     await ensureOffscreenDocument();
@@ -119,7 +122,6 @@ async function checkNanoStatus() {
   }
 }
 
-// Generate via Gemini Nano (supports reply and post modes)
 async function generateViaNano(promptText, customInstructions = '', mode = 'reply') {
   let systemContent = mode === 'post'
     ? 'You are an elite Twitter (X) creator. Output ONLY the single final tweet text to post. Keep standalone tweets concise, under 260 characters, punchy, no hashtags, no quotes.'
@@ -158,10 +160,19 @@ async function generateViaNano(promptText, customInstructions = '', mode = 'repl
 // ==========================================
 // ENGINE: GOOGLE GEMINI CLOUD REST API
 // ==========================================
+function buildThinkingConfigForModel(modelName) {
+  // Gemini 2.5 Flash supports thinkingBudget: 0
+  if (/gemini-2\.5-flash/i.test(modelName)) {
+    return { thinkingBudget: 0 };
+  }
+  // Gemini 3.x Flash models use thinkingLevel instead of thinkingBudget
+  return null;
+}
+
 async function generateViaCloudAPI(promptText, customInstructions = '', mode = 'reply') {
   const {
     apiKey = '',
-    cloudModel = 'gemini-2.0-flash'
+    cloudModel = 'gemini-3.5-flash-lite'
   } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
   const cleanKey = apiKey.trim();
 
@@ -169,13 +180,12 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
     throw new Error('Gemini API key is missing. Please open extension settings and configure your Google Gemini API key.');
   }
 
-  let targetModel = cloudModel || 'gemini-2.0-flash';
-  if (/gemma|3\.1/i.test(targetModel)) {
-    targetModel = 'gemini-2.0-flash';
-    await chrome.storage.local.set({ cloudModel: 'gemini-2.0-flash' });
+  let targetModel = cloudModel || 'gemini-3.5-flash-lite';
+  if (/gemma|1\.5|2\.0|2\.5-flash-lite/i.test(targetModel)) {
+    targetModel = 'gemini-3.5-flash-lite';
+    await chrome.storage.local.set({ cloudModel: 'gemini-3.5-flash-lite' });
   }
 
-  // Strict concise system instruction preventing chain-of-thought/options
   let systemInstructionText = mode === 'post'
     ? 'You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under 260 characters.'
     : 'You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under 260 characters.';
@@ -187,12 +197,13 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
     systemInstructionText += ' Absolutely NO emojis. Plain text only.';
   }
 
-  // Deduplicated candidate models to ensure seamless failover across rate limits & availability
+  // Primary candidate models ordered by low latency & high availability in 2026
   const uniqueCandidateModels = Array.from(new Set([
     targetModel,
-    'gemini-2.0-flash',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash'
+    'gemini-3.5-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-3.8-flash',
+    'gemini-2.5-flash'
   ])).filter(Boolean);
 
   let lastErrorDetail = '';
@@ -202,9 +213,9 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
       maxOutputTokens: 260
     };
 
-    // For reasoning/thinking models (Gemini 2.5, 3.x), disable thinking tokens to make generation instant
-    if (/2\.5|3\./i.test(model)) {
-      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    const thinkingCfg = buildThinkingConfigForModel(model);
+    if (thinkingCfg) {
+      generationConfig.thinkingConfig = thinkingCfg;
     }
 
     const requestBody = {
@@ -222,8 +233,7 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
     const reqStart = Date.now();
-    // Allow 10s for Pro models and 7s for Flash models
-    const timeoutMs = /pro/i.test(model) ? 10000 : 7000;
+    const timeoutMs = /pro/i.test(model) ? 12000 : 8000;
 
     try {
       console.log(`[Background] Cloud API: Requesting '${model}'...`);
@@ -247,34 +257,32 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
         if (!text) {
           throw new Error('Received empty response from Gemini Cloud API.');
         }
-        const reqDuration = Date.now() - reqStart;
-        console.log(`[Background] Cloud API: Model '${model}' succeeded in ${reqDuration}ms!`);
-        return text;
+        console.log(`[Background] Cloud API: Model '${model}' succeeded in ${Date.now() - reqStart}ms!`);
+        return { text, usedModel: model };
       }
 
       const errJson = await response.json().catch(() => ({}));
       lastErrorDetail = errJson.error?.message || `HTTP ${response.status} ${response.statusText}`;
 
-      // If invalid API key, throw immediately
       if (response.status === 400 && (lastErrorDetail.includes('API_KEY_INVALID') || lastErrorDetail.includes('not valid') || lastErrorDetail.includes('API key not valid'))) {
         throw new Error(`Google API Key is invalid: ${lastErrorDetail}`);
       }
 
-      console.warn(`[Background] Model '${model}' failed after ${Date.now() - reqStart}ms (${response.status}: ${lastErrorDetail}). Falling over to next candidate model...`);
+      console.warn(`[Background] Model '${model}' failed after ${Date.now() - reqStart}ms (${response.status}: ${lastErrorDetail}). Trying next candidate...`);
     } catch (fetchErr) {
       if (fetchErr.message && (fetchErr.message.includes('API Key is invalid') || fetchErr.message.includes('API key is missing'))) {
         throw fetchErr;
       }
       lastErrorDetail = fetchErr.message;
-      console.warn(`[Background] Model '${model}' encountered error after ${Date.now() - reqStart}ms: ${fetchErr.message}. Falling over to next candidate model...`);
+      console.warn(`[Background] Model '${model}' encountered error after ${Date.now() - reqStart}ms: ${fetchErr.message}. Trying next candidate...`);
     }
   }
 
   throw new Error(`Gemini Cloud API Error: ${lastErrorDetail}`);
 }
 
-// Validate Google Gemini API Key using zero-quota models.list metadata verification
-async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') {
+// Validate Google Gemini API Key
+async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.5-flash-lite') {
   const cleanKey = (apiKey || '').trim();
   if (!cleanKey) {
     return { valid: false, message: 'API key is empty.' };
@@ -283,11 +291,10 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
   if (requestedModel && /gemma/i.test(requestedModel)) {
     return {
       valid: false,
-      message: 'Gemma models are disabled. Please choose a Gemini model (e.g. Gemini 2.5 Flash or 2.0 Flash).'
+      message: 'Gemma models are disabled. Please choose a Gemini model (e.g. Gemini 3.5 Flash-Lite).'
     };
   }
 
-  // Step 1: Verify API key validity via models.list (Consumes ZERO generation quota!)
   let availableModels = [];
   try {
     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(cleanKey)}`, {
@@ -311,13 +318,16 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
     return { valid: false, message: `Network error verifying key: ${netErr.message}` };
   }
 
-  const modelToTest = requestedModel || 'gemini-2.0-flash';
+  const modelToTest = (!requestedModel || /1\.5|2\.0|2\.5-flash-lite/i.test(requestedModel))
+    ? 'gemini-3.5-flash-lite'
+    : requestedModel;
+
   const generationConfig = { temperature: 0.7, maxOutputTokens: 20 };
-  if (/2\.5|3\./i.test(modelToTest)) {
-    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  const thinkingCfg = buildThinkingConfigForModel(modelToTest);
+  if (thinkingCfg) {
+    generationConfig.thinkingConfig = thinkingCfg;
   }
 
-  // Step 2: Test generation with selected model (with graceful RPM/quota handling)
   try {
     const testRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelToTest)}:generateContent?key=${encodeURIComponent(cleanKey)}`,
@@ -352,17 +362,17 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-2.0-flash') 
         valid: true,
         model: modelToTest,
         apiVersion: 'v1beta',
-        message: `✓ Key is Valid! Note: ${modelToTest} hit Google's 1-min rate limit (RPM). Resets every 60s, or select Gemini 2.0 Flash / 1.5 Flash.`
+        message: `✓ Key is Valid! Note: ${modelToTest} hit 1-min RPM limit. Try Gemini 3.5 Flash-Lite.`
       };
     }
 
-    if (testRes.status === 404) {
-      const fallback = availableModels.find(m => m.includes('flash') && !m.includes('image')) || 'gemini-2.0-flash';
+    if (testRes.status === 404 || errDetail.includes('no longer available')) {
+      const fallback = availableModels.find(m => m.includes('3.5-flash-lite') || (m.includes('flash') && !m.includes('2.5-flash-lite') && !m.includes('image') && !m.includes('tts') && !m.includes('audio'))) || 'gemini-3.5-flash-lite';
       return {
         valid: true,
         model: fallback,
         apiVersion: 'v1beta',
-        message: `✓ Valid Key! Note: ${modelToTest} not enabled in region; switched to ${fallback}`
+        message: `✓ Valid Key! Switched to active model ${fallback}`
       };
     }
 
@@ -443,7 +453,7 @@ async function getHeadlessSessionTokens() {
   const tokens = {
     at: atMatch[1],
     fdr: fdrMatch ? fdrMatch[1] : '',
-    bl: blMatch ? blMatch[1] : 'boq_gemini-web-uiserver_20261006.13_p0',
+    bl: blMatch ? blMatch[1] : 'boq_assistant-bard-web-server_20261006.13_p0',
     timestamp: Date.now()
   };
 
@@ -465,35 +475,23 @@ async function clearCachedSessionTokens() {
 async function generateViaHeadless(promptText, retryCount = 0) {
   const tokens = await getHeadlessSessionTokens();
 
-  // Modern Batchexecute RPC payload for Gemini
-  const reqData = [
-    [promptText, 0, null, null, null, null, 0],
-    ["en"],
-    ["", "", ""],
-    null,
-    null,
-    null,
-    [0],
-    0,
-    [],
-    [],
-    null,
-    0,
-    0
-  ];
+  // StreamGenerate expects an 80-slot inner array wrapped in [null, JSON.stringify(inner)]
+  const inner = new Array(80).fill(null);
+  inner[0] = [promptText, 0, null, null, null, null, 0];
+  inner[1] = ["en"];
+  inner[2] = ["", "", "", null, null, null, null, null, null, ""];
 
-  const envelope = [
-    [
-      ["assistant.lamda.BardFrontendService/StreamGenerate", JSON.stringify(reqData), null, "generic"]
-    ]
-  ];
+  const outer = [null, JSON.stringify(inner)];
 
   const bodyParams = new URLSearchParams();
-  bodyParams.append('f.req', JSON.stringify(envelope));
-  bodyParams.append('at', tokens.at);
+  bodyParams.append('f.req', JSON.stringify(outer));
+  if (tokens.at) {
+    bodyParams.append('at', tokens.at);
+  }
 
   const reqId = Math.floor(Math.random() * 900000) + 100000;
-  const reqUrl = `https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${encodeURIComponent(tokens.bl)}&_reqid=${reqId}&rt=c`;
+  const fSidParam = tokens.fdr ? `&f.sid=${encodeURIComponent(tokens.fdr)}` : '';
+  const reqUrl = `https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?bl=${encodeURIComponent(tokens.bl)}${fSidParam}&hl=en&_reqid=${reqId}&rt=c`;
 
   let response;
   try {
@@ -501,7 +499,9 @@ async function generateViaHeadless(promptText, retryCount = 0) {
       method: 'POST',
       credentials: 'include',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'X-Same-Domain': '1',
+        'x-goog-ext-73010989-jspb': '[0]'
       },
       body: bodyParams.toString(),
       signal: AbortSignal.timeout(30000)
@@ -517,14 +517,12 @@ async function generateViaHeadless(promptText, retryCount = 0) {
     if (response.status === 400 || response.status === 401 || response.status === 403) {
       await clearCachedSessionTokens();
       if (tokens.fromCache && retryCount < 1) {
-        console.log('[Background] Cached headless token expired, retrying once with fresh token...');
         return await generateViaHeadless(promptText, retryCount + 1);
       }
     }
     throw new Error(`Headless Gemini request returned HTTP ${response.status}`);
   }
 
-  // Stream the response body as chunks arrive
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let rawText = '';
@@ -540,20 +538,35 @@ async function generateViaHeadless(promptText, retryCount = 0) {
   if (!candidate) {
     await clearCachedSessionTokens();
     if (tokens.fromCache && retryCount < 1) {
-      console.log('[Background] Empty headless stream with cached token, retrying once...');
       return await generateViaHeadless(promptText, retryCount + 1);
     }
-    throw new Error('Could not parse text reply from headless stream.');
+    throw new Error('Could not parse text reply from headless stream. Ensure you are signed into gemini.google.com.');
   }
 
   return candidate;
 }
 
-// Robust Batchexecute response extractor for Headless Gemini
+// Recursively find "wrb.fr" frames at any array depth
+function collectWrbPayloads(node, out = []) {
+  if (!Array.isArray(node)) return out;
+  if (node[0] === 'wrb.fr' && typeof node[2] === 'string') {
+    out.push(node[2]);
+    return out;
+  }
+  for (const child of node) {
+    if (Array.isArray(child)) {
+      collectWrbPayloads(child, out);
+    }
+  }
+  return out;
+}
+
+// Robust Batchexecute / StreamGenerate response extractor for Headless Gemini
 function extractHeadlessReplyText(rawText, promptText = '') {
   if (!rawText) return '';
 
-  // 1. Direct JSON extraction from Google batchexecute stream
+  let latestStreamedReply = '';
+
   const lines = rawText.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
@@ -561,36 +574,37 @@ function extractHeadlessReplyText(rawText, promptText = '') {
 
     try {
       const parsedEnvelope = JSON.parse(trimmed);
-      if (Array.isArray(parsedEnvelope)) {
-        for (const item of parsedEnvelope) {
-          if (Array.isArray(item) && item[2] && typeof item[2] === 'string') {
-            try {
-              const innerData = JSON.parse(item[2]);
-              // Strategy A: Standard Gemini path: innerData[4][0][1][0]
-              if (innerData?.[4]?.[0]?.[1]?.[0] && typeof innerData[4][0][1][0] === 'string') {
-                return innerData[4][0][1][0].trim();
-              }
-              // Strategy B: Search for candidate block starting with rc_
-              const rcCandidates = findCandidateByRc(innerData);
-              if (rcCandidates) return rcCandidates.trim();
-            } catch (innerErr) {}
+      const wrbPayloads = collectWrbPayloads(parsedEnvelope);
+      for (const payloadStr of wrbPayloads) {
+        try {
+          const innerData = JSON.parse(payloadStr);
+          if (innerData?.[4]?.[0]?.[1]?.[0] && typeof innerData[4][0][1][0] === 'string') {
+            latestStreamedReply = innerData[4][0][1][0].trim();
+          } else {
+            const rcCandidate = findCandidateByRc(innerData);
+            if (rcCandidate) {
+              latestStreamedReply = rcCandidate.trim();
+            }
           }
-        }
+        } catch (innerErr) {}
       }
     } catch (e) {}
   }
 
+  if (latestStreamedReply) return latestStreamedReply;
+
   // Strategy C: Regex search for rc_ pattern in rawText
-  const rcMatch = rawText.match(/\[\\?"rc_[^"]+\\?",\s*\[\\?"([^"\\]*(?:\\.[^"\\]*)*)\\?"\]/);
-  if (rcMatch && rcMatch[1]) {
+  const rcMatches = [...rawText.matchAll(/\[\\?"rc_[^"]+\\?",\s*\[\\?"([^"\\]*(?:\\.[^"\\]*)*)\\?"/g)];
+  if (rcMatches.length > 0) {
+    const lastMatch = rcMatches[rcMatches.length - 1][1];
     try {
-      return JSON.parse(`"${rcMatch[1]}"`).trim();
+      return JSON.parse(`"${lastMatch}"`).trim();
     } catch (e) {
-      return rcMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim();
+      return lastMatch.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim();
     }
   }
 
-  // Strategy D: Deep string harvesting (preferring valid tweet-length strings over long reasoning dumps)
+  // Strategy D: Deep string harvesting (preferring valid tweet-length strings)
   const stringRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
   let m;
   let bestTweetCandidate = '';
@@ -626,7 +640,7 @@ function extractHeadlessReplyText(rawText, promptText = '') {
       !trimmedCandidate.includes('You are an authentic user') &&
       !trimmedCandidate.includes('You are crafting an authentic Twitter') &&
       (!promptSig || !trimmedCandidate.includes(promptSig)) &&
-      /\s/.test(trimmedCandidate) // Must contain at least one space (filters out internal IDs/tokens)
+      /\s/.test(trimmedCandidate)
     ) {
       if (trimmedCandidate.length <= 280) {
         bestTweetCandidate = trimmedCandidate;
@@ -664,7 +678,6 @@ async function findGeminiTab() {
   return appTab || tabs[0];
 }
 
-// Wait until Gemini tab completes loading and has rendered its prompt input
 async function waitForGeminiTabReady(tabId, timeoutMs = 25000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -676,9 +689,7 @@ async function waitForGeminiTabReady(tabId, timeoutMs = 25000) {
           return true;
         }
       }
-    } catch (e) {
-      // Tab loading, redirecting, or script not injected yet
-    }
+    } catch (e) {}
     await new Promise(r => setTimeout(r, 100));
   }
   return false;
@@ -756,13 +767,11 @@ async function generateViaWebTab(promptText) {
       throw new Error('Gemini tab is not open. Please open gemini.google.com/app or choose Gemini Nano engine.');
     }
 
-    // Save current active tab (e.g. Twitter) so we can keep user focused there
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
       callerTab = activeTab;
     } catch (e) {}
 
-    // Open Gemini tab active so Chrome hydrates Angular/Lit at full speed
     geminiTab = await chrome.tabs.create({
       url: GEMINI_URL,
       active: true
@@ -773,7 +782,6 @@ async function generateViaWebTab(promptText) {
   try {
     if (createdNewTab) {
       const isReady = await waitForGeminiTabReady(geminiTab.id, 25000);
-      // Restore caller tab focus regardless of ready outcome
       if (callerTab) {
         try {
           await chrome.tabs.update(callerTab.id, { active: true });
@@ -818,16 +826,15 @@ async function generateViaWebTab(promptText) {
 // ==========================================
 // RESILIENT MULTI-ENGINE FALLBACK PIPELINE
 // ==========================================
-async function executeWithFallback(engine, promptText, customInstructions = '', mode = 'reply') {
+async function executeWithFallback(engine, promptText, customInstructions = '', mode = 'reply', disableFallback = false) {
   try {
     if (engine === 'nano') {
       const reply = await generateViaNano(promptText, customInstructions, mode);
       return { reply, engine: 'Gemini Nano' };
     }
     if (engine === 'cloud_api') {
-      const { cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['cloudModel']);
-      const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
-      return { reply, engine: `Cloud API (${cloudModel})` };
+      const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode);
+      return { reply: text, engine: `Cloud API (${usedModel})` };
     }
     if (engine === 'headless') {
       const reply = await generateViaHeadless(promptText);
@@ -838,6 +845,10 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
   } catch (primaryErr) {
     console.warn(`[Background] Primary engine '${engine}' failed:`, primaryErr);
 
+    if (disableFallback) {
+      throw primaryErr;
+    }
+
     if (engine === 'cloud_api') {
       const isConfigError = /api key.*(?:missing|invalid|not valid)/i.test(primaryErr.message);
       if (isConfigError) {
@@ -845,7 +856,6 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       }
     }
 
-    // A. If primary was cloud_api: try Nano (instant on-device AI) only
     if (engine === 'cloud_api') {
       try {
         const nanoStatus = await checkNanoStatus();
@@ -860,14 +870,13 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       throw primaryErr;
     }
 
-    // B. If primary was nano: try Cloud API -> Headless -> Web Tab (only if tab exists)
     if (engine === 'nano') {
       try {
-        const { apiKey = '', cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+        const { apiKey = '' } = await chrome.storage.local.get(['apiKey']);
         if (apiKey.trim().length > 10) {
           console.log('[Background] Gemini Nano failed, falling back to Cloud API.');
-          const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
-          return { reply, engine: `Cloud API (${cloudModel}) (fallback)` };
+          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode);
+          return { reply: text, engine: `Cloud API (${usedModel}) (fallback)` };
         }
       } catch (cloudErr) {
         console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
@@ -895,7 +904,6 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       throw primaryErr;
     }
 
-    // C. If primary was headless: try Nano -> Cloud API -> Web Tab (only if tab exists)
     if (engine === 'headless') {
       try {
         const nanoStatus = await checkNanoStatus();
@@ -909,11 +917,11 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       }
 
       try {
-        const { apiKey = '', cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+        const { apiKey = '' } = await chrome.storage.local.get(['apiKey']);
         if (apiKey.trim().length > 10) {
           console.log('[Background] Headless failed, falling back to Cloud API.');
-          const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
-          return { reply, engine: `Cloud API (${cloudModel}) (fallback)` };
+          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode);
+          return { reply: text, engine: `Cloud API (${usedModel}) (fallback)` };
         }
       } catch (cloudErr) {
         console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
@@ -933,14 +941,13 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       throw primaryErr;
     }
 
-    // D. If primary was web_tab: try Cloud API (if configured) -> Nano (if ready)
     if (engine === 'web_tab') {
       try {
-        const { apiKey = '', cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['apiKey', 'cloudModel']);
+        const { apiKey = '' } = await chrome.storage.local.get(['apiKey']);
         if (apiKey.trim().length > 10) {
           console.log('[Background] Web Tab failed, falling back to Cloud API.');
-          const reply = await generateViaCloudAPI(promptText, customInstructions, mode);
-          return { reply, engine: `Cloud API (${cloudModel}) (fallback)` };
+          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode);
+          return { reply: text, engine: `Cloud API (${usedModel}) (fallback)` };
         }
       } catch (cloudErr) {
         console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
@@ -972,12 +979,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   (async () => {
     try {
-      // 1. Check Engine Status
       if (message.type === 'CHECK_ENGINE_STATUS') {
-        let { engine = 'cloud_api', apiKey = '', cloudModel = 'gemini-2.0-flash' } = await chrome.storage.local.get(['engine', 'apiKey', 'cloudModel']);
+        let { engine = 'cloud_api', apiKey = '', cloudModel = 'gemini-3.5-flash-lite' } = await chrome.storage.local.get(['engine', 'apiKey', 'cloudModel']);
 
-        if (!cloudModel || /gemma/i.test(cloudModel)) {
-          cloudModel = 'gemini-2.0-flash';
+        if (!cloudModel || /gemma|1\.5|2\.0|2\.5-flash-lite/i.test(cloudModel)) {
+          cloudModel = 'gemini-3.5-flash-lite';
           await chrome.storage.local.set({ cloudModel });
         }
 
@@ -1041,7 +1047,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
         }
 
-        // Default: 'web_tab'
         const geminiTab = await findGeminiTab();
         if (!geminiTab) {
           return sendResponse({
@@ -1075,14 +1080,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
-      // Validate Cloud API Key from settings popup
       if (message.type === 'VALIDATE_CLOUD_API_KEY') {
-        const { apiKey = '', model = 'gemini-2.0-flash' } = message.payload || {};
+        const { apiKey = '', model = 'gemini-3.5-flash-lite' } = message.payload || {};
         const validation = await validateCloudAPIKey(apiKey, model);
         return sendResponse(validation);
       }
 
-      // 2. Open Gemini Tab
       if (message.type === 'OPEN_GEMINI') {
         let geminiTab = await findGeminiTab();
         if (geminiTab) {
@@ -1100,17 +1103,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return sendResponse({ success: true, tabId: geminiTab.id });
       }
 
-      // 3. Generate Reply
       if (message.type === 'GENERATE_REPLY') {
         const settings = await chrome.storage.local.get(['engine', 'customInstructions']);
-        const engine = settings.engine || 'cloud_api';
+        const engine = message.payload?.engineOverride || settings.engine || 'cloud_api';
+        const disableFallback = !!message.payload?.disableFallback;
         const customInstructions = settings.customInstructions || message.payload?.customInstructions || '';
         const promptText = buildGeminiPrompt({
           ...message.payload,
           customInstructions
         });
 
-        const result = await executeWithFallback(engine, promptText, customInstructions, 'reply');
+        const result = await executeWithFallback(engine, promptText, customInstructions, 'reply', disableFallback);
 
         return sendResponse({
           success: true,
@@ -1119,17 +1122,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       }
 
-      // 4. Generate New Post
       if (message.type === 'GENERATE_POST') {
         const settings = await chrome.storage.local.get(['engine', 'customInstructions']);
-        const engine = settings.engine || 'cloud_api';
+        const engine = message.payload?.engineOverride || settings.engine || 'cloud_api';
+        const disableFallback = !!message.payload?.disableFallback;
         const customInstructions = settings.customInstructions || message.payload?.customInstructions || '';
         const promptText = buildGeminiPostPrompt({
           ...message.payload,
           customInstructions
         });
 
-        const result = await executeWithFallback(engine, promptText, customInstructions, 'post');
+        const result = await executeWithFallback(engine, promptText, customInstructions, 'post', disableFallback);
 
         return sendResponse({
           success: true,
@@ -1162,19 +1165,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Helper: check if custom instructions request no emojis
 function hasNoEmojiInstruction(instructions) {
   if (!instructions) return false;
   return /(?:no|zero|without|avoid|don'?t\s+use|do\s+not\s+use|never\s+use|free\s+of|stop\s+using|disallow)\s+emojis?/i.test(instructions);
 }
 
-// Helper: check if custom instructions request no hashtags
 function hasNoHashtagInstruction(instructions) {
   if (!instructions) return false;
   return /(?:no|zero|without|avoid|don'?t\s+use|do\s+not\s+use|never\s+use|free\s+of|stop\s+using|disallow)\s+hashtags?/i.test(instructions);
 }
 
-// Prompt Builder for Replies
 function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions }) {
   const toneDescriptions = {
     quick: 'natural, friendly, and relevant',
@@ -1208,18 +1208,15 @@ ${noEmoji ? '- No emojis.\n' : ''}${noHashtags ? '- No hashtags.\n' : ''}
 Reply:`;
 }
 
-// Cleaner for Replies & Posts (Preserves legitimate bulleted tweets under 280 chars)
 function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
   if (!rawText) return '';
   let text = rawText.trim();
 
-  // Only treat bullet lists as a scratchpad if text exceeds tweet length (>280 chars) or has explicit scratchpad labels
   const hasExplicitScratchpadLabels = /(?:\*+\s*(?:User wants|Original [Tt]weet|Target|Constraints|Tone|Topic|Goal|Category|Platform|Persona|Witty angles|Analyzing|Evaluating|Draft|Thinking|Thought)|Option\s*\d|\*+Option\s*\d)/i.test(text);
   const hasLongBulletScratchpad = text.length > 280 && (text.split('\n').filter(l => /^\s*[*•-]/.test(l)).length >= 2);
   const hasScratchpad = hasExplicitScratchpadLabels || hasLongBulletScratchpad;
 
   if (hasScratchpad) {
-    // Strategy A: Check for numbered options (e.g. Option 1:, **Option 1:**)
     const optionMatches = [...text.matchAll(/(?:^|[\n*•-])\s*\*?\*?Option\s*(\d)\*?:\*?\s*([^\n*]+)/gi)];
     if (optionMatches.length > 0) {
       const praisedMatch = text.match(/Option\s*(\d)[^.\n]*(?:Twitter|best|clever|witty|classic|favorite)/i);
@@ -1234,7 +1231,6 @@ function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
       }
     }
 
-    // Strategy B: Check for bulleted quotes
     const bulletQuotes = [...text.matchAll(/(?:^|[\n*•-])\s*["“]([^"”\n]{15,260})["”]/g)];
     if (bulletQuotes.length > 0) {
       const validQuotes = bulletQuotes.filter(q => {
@@ -1246,7 +1242,6 @@ function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
       }
     }
 
-    // Strategy C: Strip all bullet metadata and take clean text
     text = text.replace(/(?:^|\n)\s*[*•-]\s*(?:User wants|Original [Tt]weet|Target|Constraints|Tone|Topic|Goal|Category|Platform|Persona|Subject|Sentiment|Witty angles|Analyzing|Evaluating|Draft|Thinking)[^:\n]*:[^\n]*/gi, '');
     text = text.replace(/[*•-]\s*\*?Option\s*\d\*?:?/gi, '');
     text = text.replace(/Wait,\s*let'?s\s*make\s*it\s*even\s*more[^".\n]*[.:]?/gi, '');
@@ -1258,22 +1253,17 @@ function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
   return sanitizeTweetOutput(text, customInstructions);
 }
 
-// Universal Tweet Output Sanitizer (Preserves intentional line breaks)
 function sanitizeTweetOutput(text, customInstructions = '') {
   let cleaned = text.trim();
 
-  // Strip conversational AI prefixes
   cleaned = cleaned.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty )?(?:reply|tweet|post):?\s*|twitter (?:reply|post):?\s*|suggested (?:reply|post):?\s*|(?:reply|tweet):?\s*)/i, '').trim();
 
-  // Strip outer quotes
   if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith('“') && cleaned.endsWith('”')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
     cleaned = cleaned.slice(1, -1).trim();
   }
 
-  // Strip stray markdown asterisks at start/end
   cleaned = cleaned.replace(/^\*+\s*/, '').replace(/\s*\*+$/, '').trim();
 
-  // Collapse multiple horizontal spaces/tabs while preserving intentional line breaks (\n and \n\n)
   cleaned = cleaned
     .replace(/\r\n/g, '\n')
     .replace(/[ \t]{2,}/g, ' ')
@@ -1281,7 +1271,6 @@ function sanitizeTweetOutput(text, customInstructions = '') {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  // Programmatic enforcement if user requested no emoji
   if (hasNoEmojiInstruction(customInstructions)) {
     cleaned = cleaned
       .replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '')
@@ -1290,7 +1279,6 @@ function sanitizeTweetOutput(text, customInstructions = '') {
       .trim();
   }
 
-  // Programmatic enforcement if user requested no hashtags
   if (hasNoHashtagInstruction(customInstructions)) {
     cleaned = cleaned
       .replace(/#[A-Za-z0-9_]+/g, '')
@@ -1298,7 +1286,6 @@ function sanitizeTweetOutput(text, customInstructions = '') {
       .trim();
   }
 
-  // Limit length to 280 characters cleanly at sentence or word boundary
   if (cleaned.length > 280) {
     const cut = cleaned.substring(0, 275);
     const lastPunct = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('!'), cut.lastIndexOf('?'));
@@ -1313,7 +1300,6 @@ function sanitizeTweetOutput(text, customInstructions = '') {
   return cleaned;
 }
 
-// Prompt Builder for New Posts
 function buildGeminiPostPrompt({ topicOrDraft, isDraft, style, customInstructions }) {
   const styleDescriptions = {
     engaging: 'highly engaging, punchy, with a strong curiosity hook in the first line that grabs immediate attention',
@@ -1374,7 +1360,6 @@ ${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).' : '- Do NOT include ha
 ${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
 }
 
-// Cleaner for New Posts
 function cleanGeneratedPost(rawText, customInstructions = '') {
   if (!rawText) return '';
   return cleanGeneratedReply(rawText, customInstructions, 'post');
