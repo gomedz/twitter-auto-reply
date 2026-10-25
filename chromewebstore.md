@@ -17,70 +17,141 @@ AI auto-reply & post creator for Twitter (X). Supports free Gemini Cloud API, on
 ---
 
 ### Detailed Description
-**Twitter (X) AI Assistant** is an all-in-one productivity extension engineered to help creators, marketers, founders, and everyday users craft intelligent auto-replies and viral standalone posts directly within Twitter (X) — with zero paid API subscriptions and maximum flexibility.
+**Twitter (X) AI Assistant** helps you write high-quality replies and viral tweets on Twitter (X) in one click — with zero paid subscriptions and zero clutter.
 
-Whether you want lightning-fast on-device AI that works offline, an official free Cloud REST API, or silent browser sessions with zero extra tabs, Twitter AI Assistant has you covered.
-
----
-
-### 🌟 Supported AI Engines
-
-1. **☁️ Google Gemini Cloud API (Ultra-Fast & Free)** *(Recommended)*:
-   - **0 tabs opened**.
-   - Direct REST integration with Google Generative Language API.
-   - Powered by Google's fast & reliable **`gemini-2.5-flash`** (also supports `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`).
-   - Uses a **100% free** API key from Google AI Studio (no credit card or billing needed).
-   - Built-in key verification and connection testing directly in the popup.
-
-2. **⚡ Gemini Nano (Chrome Built-in On-Device AI)**:
-   - **0 tabs opened**.
-   - Runs 100% privately on your local hardware (GPU/NPU) via Chrome's Prompt API.
-   - Works offline and generates contextual replies in under a second.
-
-3. **🌐 Headless Web Engine (Google Cookie Session)**:
-   - **0 tabs opened**.
-   - Communicates silently in the background using your active Google login cookies.
-   - Zero configuration or API keys required.
-
-4. **🗂️ Gemini Web Tab (DOM Automation)**:
-   - Automates the real `gemini.google.com/app` interface with complex reasoning models.
-   - Includes an **Auto-Close Tab** toggle so temporary tabs disappear automatically.
+Whether you want lightning-fast cloud AI, 100% private on-device processing, or silent sessions that never open a tab, Twitter AI Assistant seamlessly integrates directly into your Twitter feed.
 
 ---
 
-### 🚀 Core Features
+### 🌟 4 Flexible AI Engines
 
-- **Split-Button Composer Integration**:
-  - Automatically injects native-looking `[ ✦ AI Reply | ▾ ]` and `[ ✦ AI Post | ▾ ]` buttons directly into Twitter's reply composers and tweet dialogs.
-  - 1-click generation with your default tone, or click the dropdown arrow to select on the fly.
+1. **☁️ Gemini Cloud API (Recommended — Ultra Fast & Free)**
+   - **0 tabs opened**: Runs quietly in the background via Google's official API.
+   - **Latest Gemini Models**: Powered by `gemini-3.5-flash-lite` (blazing fast with high free quotas), plus `gemini-3.6-flash`, `gemini-3.8-flash`, and `gemini-2.5-pro`.
+   - **100% Free**: Connect your own free Google AI Studio API key (no credit card required).
+   - **One-Click Key Tester**: Instantly verify your API key and connection status in the popup.
+
+2. **⚡ Gemini Nano (Private On-Device AI)**
+   - **0 tabs opened & 100% offline**: Runs completely on your local computer using Chrome's built-in AI.
+   - **Maximum Privacy**: Your drafts and tweets never leave your device.
+
+3. **🌐 Headless Web Engine (Google Account Session)**
+   - **0 tabs opened**: Generates replies silently in the background using your active Google login.
+   - **Zero Setup**: No API keys or configurations required.
+
+4. **🗂️ Gemini Web Tab (Deep Reasoning)**
+   - Automatically drafts via the Gemini web interface when you want deep, multi-turn reasoning.
+   - Includes **Auto-Close Tab** so temporary windows close themselves automatically when done.
+
+---
+
+### 🚀 Key Features
+
+- **Seamless Twitter (X) Integration**:
+  - Injects native `[ ✦ AI Reply ]` and `[ ✦ AI Post ]` split-buttons directly into Twitter's reply boxes and tweet composer.
+  - Click once to generate instantly with your favorite tone, or click the arrow to pick a different style.
 
 - **6 Context-Aware Reply Tones**:
-  - *Quick*: Crisp, punchy, conversational replies.
-  - *Agree*: Supportive validation with thoughtful additions.
-  - *Thoughtful*: Deep, analytical, value-driven perspectives.
-  - *Witty*: Clever, humorous banter and playful takes.
-  - *Question*: Engaging open-ended questions that drive comments.
-  - *Counter-Point*: Respectful, constructive alternate viewpoints.
+  - **Quick**: Crisp, natural, and punchy.
+  - **Agree**: Supportive, thoughtful validation.
+  - **Thoughtful**: Deep, analytical, value-packed insights.
+  - **Witty**: Playful banter and clever humor.
+  - **Question**: Open-ended conversation starters that boost engagement.
+  - **Counter-Point**: Constructive, respectful alternative perspectives.
 
-- **AI Post Generator (7 Viral Archetypes)**:
-  - Generate standalone tweets from scratch or polish existing rough drafts.
-  - Styles include *Engaging Hook*, *Insight & Value*, *Storytelling*, *Question / Poll Prompt*, *Hot Take*, *Actionable Tip*, and *Minimalist*.
-  - **Topic Prompt Mode**: If the tweet composer is empty, clicking AI Post opens an inline prompt popover to guide the generation.
+- **Viral Post Creator (7 Tweet Styles)**:
+  - Craft original posts from a simple topic prompt or polish rough drafts into viral-ready tweets.
+  - Choose from 7 proven formats: *Engaging Hook*, *Insight & Value*, *Storytelling*, *Question / Poll*, *Hot Take*, *Actionable Tip*, and *Minimalist*.
+  - **Topic Prompt Popover**: Opens an inline helper if your composer is empty so you never face writer's block.
 
-- **On-Screen Floating HUD Widget**:
-  - Draggable, collapsible widget that sits on your Twitter feed.
-  - Live engine status indicators for all 4 engines (`Nano`, `Cloud API`, `Headless`, `Web`).
-  - **Inline Custom Prompt Textarea**: Define constraints (e.g., *"no emojis"*, *"keep under 180 chars"*, *"sound like a tech founder"*) directly on-page without opening the extension popup.
-  - Quick Post Drafter & tone selector.
+- **On-Screen Floating HUD**:
+  - A compact, draggable widget right on your Twitter feed.
+  - Check live engine status, switch reply tones on the fly, and draft posts without leaving the page.
+  - **Live Custom Prompt Box**: Enter custom rules directly on-screen (e.g., *"no emojis"*, *"sound like a founder"*, *"keep under 200 characters"*).
 
-- **Standalone Popup Post Creator**:
-  - Dedicated tab inside the extension popup to draft, edit, copy, or launch tweets to 𝕏 with one click.
+- **Custom Prompt Guardrails**:
+  - Enforce personal style guidelines across all generations.
+  - Programmatic filters guarantee your rules are honored (e.g., strictly stripping emojis or hashtags when requested).
 
-- **Intelligent Engine Fallback**:
-  - Automatically cascades across `Cloud API` → `Gemini Nano` → `Headless Web` → `Gemini Web Tab` to prevent generation interruptions.
+- **Standalone Popup Tweet Drafter**:
+  - Craft, refine, and launch tweets directly to Twitter (X) right from your browser toolbar.
 
-- **Clean Output Guardrails**:
-  - Automatic filtering of internal deliberation scratchpads, multi-option headings, and prompt echoes.
+- **Intelligent Fallback Protection**:
+  - Automatically cascades to backup engines if your active engine encounters rate limits or connection issues.
+
+- **Clean & Natural Output**:
+  - Intentionally strips AI conversational fluff (e.g., *"Here is a reply:"*), eliminates scratchpad notes, preserves intended line breaks, and fits Twitter's 280-character limit cleanly.
+
+---
+
+### Detailed Description (Plain Text — Ready to Copy & Paste to Chrome Web Store)
+
+```text
+Twitter (X) AI Assistant helps you write high-quality replies and viral tweets on Twitter (X) in one click — with zero paid subscriptions and zero clutter.
+
+Whether you want lightning-fast cloud AI, 100% private on-device processing, or silent sessions that never open a tab, Twitter AI Assistant seamlessly integrates directly into your Twitter feed.
+
+========================================
+🌟 4 FLEXIBLE AI ENGINES
+========================================
+
+1. ☁️ Gemini Cloud API (Recommended — Ultra Fast & Free)
+• 0 tabs opened: Runs quietly in the background via Google's official API.
+• Latest Gemini Models: Powered by gemini-3.5-flash-lite (blazing fast with high free quotas), plus gemini-3.6-flash, gemini-3.8-flash, and gemini-2.5-pro.
+• 100% Free: Connect your own free Google AI Studio API key (no credit card required).
+• One-Click Key Tester: Instantly verify your API key and connection status in the popup.
+
+2. ⚡ Gemini Nano (Private On-Device AI)
+• 0 tabs opened & 100% offline: Runs completely on your local computer using Chrome's built-in AI.
+• Maximum Privacy: Your drafts and tweets never leave your device.
+
+3. 🌐 Headless Web Engine (Google Account Session)
+• 0 tabs opened: Generates replies silently in the background using your active Google login.
+• Zero Setup: No API keys or configurations required.
+
+4. 🗂️ Gemini Web Tab (Deep Reasoning)
+• Automatically drafts via the Gemini web interface when you want deep, multi-turn reasoning.
+• Includes Auto-Close Tab so temporary windows close themselves automatically when done.
+
+========================================
+🚀 KEY FEATURES
+========================================
+
+• Seamless Twitter (X) Integration:
+  - Injects native [✦ AI Reply] and [✦ AI Post] split-buttons directly into Twitter's reply boxes and tweet composer.
+  - Click once to generate instantly with your favorite tone, or click the arrow to pick a different style.
+
+• 6 Context-Aware Reply Tones:
+  - Quick: Crisp, natural, and punchy.
+  - Agree: Supportive, thoughtful validation.
+  - Thoughtful: Deep, analytical, value-packed insights.
+  - Witty: Playful banter and clever humor.
+  - Question: Open-ended conversation starters that boost engagement.
+  - Counter-Point: Constructive, respectful alternative perspectives.
+
+• Viral Post Creator (7 Tweet Styles):
+  - Craft original posts from a simple topic prompt or polish rough drafts into viral-ready tweets.
+  - Choose from 7 proven formats: Engaging Hook, Insight & Value, Storytelling, Question / Poll, Hot Take, Actionable Tip, and Minimalist.
+  - Topic Prompt Popover: Opens an inline helper if your composer is empty so you never face writer's block.
+
+• On-Screen Floating HUD:
+  - A compact, draggable widget right on your Twitter feed.
+  - Check live engine status, switch reply tones on the fly, and draft posts without leaving the page.
+  - Live Custom Prompt Box: Enter custom rules directly on-screen (e.g., "no emojis", "sound like a founder", "keep under 200 characters").
+
+• Custom Prompt Guardrails:
+  - Enforce personal style guidelines across all generations.
+  - Programmatic filters guarantee your rules are honored (e.g., strictly stripping emojis or hashtags when requested).
+
+• Standalone Popup Tweet Drafter:
+  - Craft, refine, and launch tweets directly to Twitter (X) right from your browser toolbar.
+
+• Intelligent Fallback Protection:
+  - Automatically cascades to backup engines if your active engine encounters rate limits or connection issues.
+
+• Clean & Natural Output:
+  - Intentionally strips AI conversational fluff (e.g., "Here is a reply:"), eliminates scratchpad notes, preserves intended line breaks, and fits Twitter's 280-character limit cleanly.
+```
 
 ---
 
@@ -124,6 +195,10 @@ Whether you want lightning-fast on-device AI that works offline, an official fre
 
 ## 5. Version History
 
+- **v1.3.1** (Gemini 3.x Models & Isolated Engine Diagnostics):
+  - Updated Gemini Cloud API models to Gemini 3.x series (`gemini-3.5-flash-lite` default, `gemini-3.6-flash`, and `gemini-3.8-flash`).
+  - Added isolated engine testing mode in settings to verify selected engines independently without fallback cascading.
+  - Preserved tweet line breaks and refined sanitization.
 - **v1.3.0** (Cloud API & HUD Overhaul):
   - Added official Google Gemini Cloud REST API engine with zero tabs and free Google AI Studio integration.
   - Multi-model selection: `gemini-2.5-flash` default, `gemini-2.0-flash`, `gemini-1.5-flash`, and `gemini-1.5-pro`.

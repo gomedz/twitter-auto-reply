@@ -3,6 +3,13 @@
 All notable changes to **Twitter AI Auto Reply & Post Creator** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-10-14
+
+### Added & Improved
+- **Gemini 3.x Cloud Models**: Updated Cloud API model lineup to include `gemini-3.5-flash-lite` (default recommended with ultra-fast responses and high quota), `gemini-3.6-flash`, and `gemini-3.8-flash`, while retaining `gemini-2.5-flash` and `gemini-2.5-pro`.
+- **Targeted Engine Testing**: Upgraded the test generation tool in popup settings to strictly test the currently selected engine (`engineOverride` with fallback disabled) for transparent, isolated engine diagnostics.
+- **Formatting & Sanitization**: Preserved intentional tweet line breaks and cleaned up UI listeners.
+
 ## [1.3.0] - 2026-10-07
 
 ### Added
