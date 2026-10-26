@@ -3,6 +3,13 @@
 All notable changes to **Twitter AI Auto Reply & Post Creator** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-10-26
+
+### Added & Improved
+- **Prompt Sandwich Pattern for Replies**: Applied dual-boundary reinforcement (`MANDATORY USER RULES` header at top and `REMINDER` at bottom) to `buildGeminiPrompt`, eliminating instruction drift and recency bias on long tweets.
+- **Explicit Hierarchy Enforcement**: Introduced clear directive that Custom Prompt Rules take absolute precedence over selected UI Tones/Styles and general requirements, preventing directive collisions.
+- **Dynamic Character Length Extraction & Clamping**: Implemented `extractCustomCharLimit` to parse custom length constraints (e.g., *"under 100 chars"*, *"max 150 characters"*), dynamically synchronizing prompt instructions and enforcing clean sentence/word-boundary clamping in `sanitizeTweetOutput`.
+
 ## [1.3.1] - 2026-10-14
 
 ### Added & Improved

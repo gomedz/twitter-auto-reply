@@ -123,9 +123,10 @@ async function checkNanoStatus() {
 }
 
 async function generateViaNano(promptText, customInstructions = '', mode = 'reply') {
+  const charLimit = extractCustomCharLimit(customInstructions, 260);
   let systemContent = mode === 'post'
-    ? 'You are an elite Twitter (X) creator. Output ONLY the single final tweet text to post. Keep standalone tweets concise, under 260 characters, punchy, no hashtags, no quotes.'
-    : 'You are an authentic Twitter (X) assistant. Output ONLY the single final reply to post. Keep tweets and replies concise, under 260 characters, natural, no hashtags, no quotes.';
+    ? `You are an elite Twitter (X) creator. Output ONLY the single final tweet text to post. Keep standalone tweets concise, under ${charLimit} characters, punchy, no hashtags, no quotes.`
+    : `You are an authentic Twitter (X) assistant. Output ONLY the single final reply to post. Keep tweets and replies concise, under ${charLimit} characters, natural, no hashtags, no quotes.`;
 
   if (customInstructions) {
     systemContent += ` ABSOLUTE MANDATORY RULES (override everything else, no exceptions): ${customInstructions}`;
@@ -186,9 +187,10 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
     await chrome.storage.local.set({ cloudModel: 'gemini-3.5-flash-lite' });
   }
 
+  const charLimit = extractCustomCharLimit(customInstructions, 260);
   let systemInstructionText = mode === 'post'
-    ? 'You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under 260 characters.'
-    : 'You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under 260 characters.';
+    ? `You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under ${charLimit} characters.`
+    : `You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under ${charLimit} characters.`;
 
   if (customInstructions) {
     systemInstructionText += ' STRICT USER RULES: ' + customInstructions;
@@ -1175,6 +1177,18 @@ function hasNoHashtagInstruction(instructions) {
   return /(?:no|zero|without|avoid|don'?t\s+use|do\s+not\s+use|never\s+use|free\s+of|stop\s+using|disallow)\s+hashtags?/i.test(instructions);
 }
 
+function extractCustomCharLimit(instructions, defaultLimit = 260) {
+  if (!instructions) return defaultLimit;
+  const match = instructions.match(/(?:under|max|less than|within|limit to)\s*(\d{2,3})\s*(?:chars|characters)/i);
+  if (match) {
+    const parsed = parseInt(match[1], 10);
+    if (!isNaN(parsed) && parsed >= 20 && parsed <= 280) {
+      return parsed;
+    }
+  }
+  return defaultLimit;
+}
+
 function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions }) {
   const toneDescriptions = {
     quick: 'natural, friendly, and relevant',
@@ -1189,9 +1203,14 @@ function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions })
   const authorMention = tweetAuthor ? ` by @${tweetAuthor}` : '';
   const noEmoji = hasNoEmojiInstruction(customInstructions);
   const noHashtags = hasNoHashtagInstruction(customInstructions);
+  const charLimit = extractCustomCharLimit(customInstructions, 260);
 
   const customBlock = customInstructions
-    ? `Custom Rules: ${customInstructions}\n`
+    ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${customInstructions}\n\n`
+    : '';
+
+  const bottomReminder = customInstructions
+    ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}\n`
     : '';
 
   return `${customBlock}You are an authentic user on Twitter (X). Write a ${selectedTone} reply to this tweet${authorMention}:
@@ -1200,11 +1219,11 @@ ${tweetText}
 """
 
 Requirements:
-- Single direct reply only, under 260 characters.
+- Single direct reply only, under ${charLimit} characters.
 - Conversational and human.
 - No quotation marks.
 - No conversational preamble.
-${noEmoji ? '- No emojis.\n' : ''}${noHashtags ? '- No hashtags.\n' : ''}
+${customInstructions ? '- Custom Rules override selected Tone and general Requirements.\n' : ''}${noEmoji ? '- No emojis.\n' : ''}${noHashtags ? '- No hashtags.\n' : ''}${bottomReminder}
 Reply:`;
 }
 
@@ -1286,14 +1305,18 @@ function sanitizeTweetOutput(text, customInstructions = '') {
       .trim();
   }
 
-  if (cleaned.length > 280) {
-    const cut = cleaned.substring(0, 275);
+  const customLimit = extractCustomCharLimit(customInstructions, null);
+  const maxLimit = customLimit ? Math.min(customLimit, 280) : 280;
+
+  if (cleaned.length > maxLimit) {
+    const cut = cleaned.substring(0, Math.max(10, maxLimit - 5));
+    const minThreshold = Math.min(60, Math.floor(maxLimit * 0.4));
     const lastPunct = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('!'), cut.lastIndexOf('?'));
-    if (lastPunct > 60) {
+    if (lastPunct > minThreshold) {
       cleaned = cut.substring(0, lastPunct + 1).trim();
     } else {
       const lastSpace = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'));
-      cleaned = (lastSpace > 60 ? cut.substring(0, lastSpace).trim() : cut) + '...';
+      cleaned = (lastSpace > minThreshold ? cut.substring(0, lastSpace).trim() : cut) + '...';
     }
   }
 
@@ -1314,9 +1337,14 @@ function buildGeminiPostPrompt({ topicOrDraft, isDraft, style, customInstruction
   const selectedStyle = styleDescriptions[style] || styleDescriptions.engaging;
   const noEmoji = hasNoEmojiInstruction(customInstructions);
   const noHashtags = hasNoHashtagInstruction(customInstructions);
+  const charLimit = extractCustomCharLimit(customInstructions, 260);
 
   const customBlock = customInstructions
     ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${customInstructions}\n\n`
+    : '';
+
+  const hierarchyRule = customInstructions
+    ? '- Custom Rules override selected Style and general Requirements.\n'
     : '';
 
   if (isDraft) {
@@ -1330,14 +1358,12 @@ ${topicOrDraft}
 Target Style: ${selectedStyle}.
 Strict Instructions:
 - Output ONLY the final polished tweet text.
-- Under 260 characters total.
+- Under ${charLimit} characters total.
 - Maintain the original core message and intent.
 - Ensure natural conversational cadence, strong opening, and clean line breaks if needed.
 - Do NOT wrap in quotes.
 - Do NOT include preambles like "Here is a tweet:" or "Revised:".
-${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.' : ''}
-${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).' : '- Do NOT include hashtags unless explicitly asked.'}
-${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
   }
 
   return `${customBlock}You are an elite Twitter (X) creator. Write an authentic, high-performing standalone tweet on the given topic or idea.
@@ -1350,14 +1376,12 @@ ${topicOrDraft}
 Target Style: ${selectedStyle}.
 Strict Instructions:
 - Output ONLY the final tweet text.
-- Under 260 characters total.
+- Under ${charLimit} characters total.
 - Punchy first line (strong hook).
 - Natural, conversational human tone (avoid corporate jargon or generic influencer clichés).
 - Do NOT wrap in quotes.
 - Do NOT include preambles like "Here is a tweet:" or "Tweet:".
-${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.' : ''}
-${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).' : '- Do NOT include hashtags unless explicitly asked.'}
-${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
 }
 
 function cleanGeneratedPost(rawText, customInstructions = '') {

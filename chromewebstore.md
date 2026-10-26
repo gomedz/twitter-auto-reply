@@ -195,6 +195,10 @@ Whether you want lightning-fast cloud AI, 100% private on-device processing, or 
 
 ## 5. Version History
 
+- **v1.3.2** (Custom Prompt Hardening & Dynamic Length Controls):
+  - Upgraded reply prompt builder with prompt sandwich pattern (top priority header and bottom reminder) to eliminate recency drift.
+  - Added explicit hierarchy enforcement ensuring custom instructions strictly override selected preset tones and general requirements.
+  - Added dynamic character length extraction and code-level sentence/word boundary clamping in sanitizer.
 - **v1.3.1** (Gemini 3.x Models & Isolated Engine Diagnostics):
   - Updated Gemini Cloud API models to Gemini 3.x series (`gemini-3.5-flash-lite` default, `gemini-3.6-flash`, and `gemini-3.8-flash`).
   - Added isolated engine testing mode in settings to verify selected engines independently without fallback cascading.
