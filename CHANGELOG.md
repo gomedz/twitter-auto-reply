@@ -3,9 +3,23 @@
 All notable changes to **Twitter AI Auto Reply & Post Creator** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.2] - 2026-10-26
+## [1.3.2] - 2026-11-09
 
-### Added & Improved
+### Fixed & Synchronized (Modern X.com Architecture Migration)
+- **Dual-Layer Multi-Selector Engine**: Integrated resilient selector fallbacks (`SELECTORS`) across `content_twitter.js` supporting modern X Base UI + Tailwind DOM (`group/post`, `div[dir="auto"]`, `x-link`, `x-avatar`) where `data-testid` is stripped in production, maintaining full backwards compatibility with legacy React DOMs.
+- **In-Page Button Injection Restoration**: Upgraded `injectGeminiButtons` to locate toolbars via semantic ARIA roles and automatic parent-row discovery from submit buttons, restoring the "✦ AI Reply" and "✦ AI Post" buttons on modern X.com.
+- **Context & Author Handle Extraction**: Replaced brittle `data-testid` queries in `extractTweetContext` and `extractAuthorHandle` with a 3-tier parsing cascade (explicit `@handle` spans, link inspection, and root profile `href` matching).
+- **Composer Mode Classification**: Fixed `detectComposerType` so reply dialogs accurately detect parent tweet articles without requiring `data-testid="tweet"`.
+- **Multi-Engine Fallback Cascade**: Fixed truncated cascade in `executeWithFallback` in `background.js` so `cloud_api` failures gracefully roll down to Gemini Nano, silent Headless Web, and Gemini Web Tab.
+- **React 18 / Lexical State Synchronization**: Added synthetic `beforeinput` (`inputType: 'insertText'`) dispatch in `insertTextIntoEditor` so inserted text immediately syncs Twitter's React state, updates character count, and enables the "Post" / "Reply" button.
+- **Gemini Web Tab Auth Guard**: Refined `checkLoginStatus` in `content_gemini.js` to strictly check for `!explicitSignIn`, preventing false-positive authentication on the public welcome screen and eliminating 45-second hanging timeouts.
+- **Official Web Intent Endpoint**: Updated the Post Creator launcher in `popup/popup.js` to use `https://x.com/intent/post?text=...`, ensuring pre-filled text is retained across navigation and login redirects.
+
+### Added
+- **Automated Verification Suite**: Added `scripts/verify_all.js` covering syntax, Manifest V3 integrity, multi-selectors, fallback cascades, event dispatching, and auth guards.
+- **Technical Sync & Verification Report**: Documented architectural findings and verification in `docs/REPORT.md`.
+
+### Added & Improved (Earlier 1.3.2 Changes)
 - **Prompt Sandwich Pattern for Replies**: Applied dual-boundary reinforcement (`MANDATORY USER RULES` header at top and `REMINDER` at bottom) to `buildGeminiPrompt`, eliminating instruction drift and recency bias on long tweets.
 - **Explicit Hierarchy Enforcement**: Introduced clear directive that Custom Prompt Rules take absolute precedence over selected UI Tones/Styles and general requirements, preventing directive collisions.
 - **Dynamic Character Length Extraction & Clamping**: Implemented `extractCustomCharLimit` to parse custom length constraints (e.g., *"under 100 chars"*, *"max 150 characters"*), dynamically synchronizing prompt instructions and enforcing clean sentence/word-boundary clamping in `sanitizeTweetOutput`.

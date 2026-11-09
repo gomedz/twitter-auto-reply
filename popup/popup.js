@@ -552,13 +552,13 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
     });
   }
 
-  // Open & Post directly on Twitter/X
+  // Open & Post directly on Twitter/X via official Web Intent
   if (btnOpenXPost) {
     btnOpenXPost.addEventListener('click', () => {
       if (!postOutputText) return;
       const text = postOutputText.innerText.trim();
       if (!text) return;
-      const url = `https://x.com/compose/post?text=${encodeURIComponent(text)}`;
+      const url = `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
       chrome.tabs.create({ url });
     });
   }

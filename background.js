@@ -212,7 +212,7 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
   for (const model of uniqueCandidateModels) {
     const generationConfig = {
       temperature: 0.85,
-      maxOutputTokens: 260
+      maxOutputTokens: /pro/i.test(model) ? 1024 : 512
     };
 
     const thinkingCfg = buildThinkingConfigForModel(model);
@@ -869,6 +869,26 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       } catch (nanoErr) {
         console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
       }
+
+      try {
+        console.log('[Background] Cloud API failed, attempting silent Headless fallback.');
+        const reply = await generateViaHeadless(promptText);
+        return { reply, engine: 'Headless Web (fallback)' };
+      } catch (headlessErr) {
+        console.warn('[Background] Silent Headless fallback failed:', headlessErr);
+      }
+
+      const existingTab = await findGeminiTab();
+      if (existingTab) {
+        try {
+          console.log('[Background] Cloud API failed, falling back to existing Gemini Web Tab.');
+          const reply = await generateViaWebTab(promptText);
+          return { reply, engine: 'Gemini Web Tab (fallback)' };
+        } catch (tabErr) {
+          console.warn('[Background] Web Tab fallback failed:', tabErr);
+        }
+      }
+
       throw primaryErr;
     }
 

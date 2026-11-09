@@ -114,14 +114,23 @@ function checkLoginStatus() {
   const chatWindow = document.querySelector('chat-window, bard-sidenav, chat-history, [aria-label*="Chat history" i], [aria-label*="Recent chats" i]');
   const newChatBtn = document.querySelector('button[aria-label*="New chat" i], [data-test-id*="new-chat"]');
 
+  // Explicit sign-in cues
+  const explicitSignIn = document.querySelector(
+    'a[href*="ServiceLogin"], a[href*="/signin"], button[aria-label*="Sign in" i], [data-test-id="sign-in-button"]'
+  );
+
+  // User profile / avatar indicating authenticated session
+  const userAvatar = document.querySelector('a[aria-label*="Google Account" i], img[alt*="Google Account" i], .gb_d[aria-expanded]');
+
+  // Must have chat UI AND must NOT have an explicit sign-in prompt
   const hasChatUI = !!(inputEl || richTextarea || chatWindow || newChatBtn);
-  const explicitSignIn = document.querySelector('a[href*="ServiceLogin"], a[href*="/signin"], button[aria-label*="Sign in" i]');
-  const isLoggedIn = hasChatUI || (isApp && !explicitSignIn);
+  const isLoggedIn = (hasChatUI && !explicitSignIn) || !!userAvatar;
 
   return {
     loggedIn: isLoggedIn,
     hasInput: !!inputEl || !!richTextarea,
     hasChatUI: hasChatUI,
+    hasExplicitSignIn: !!explicitSignIn,
     url: url,
     isApp: isApp
   };

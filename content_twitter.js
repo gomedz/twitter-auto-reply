@@ -23,6 +23,17 @@ const POST_STYLES = [
   { id: 'thread', label: 'Thread Opener', icon: '🧵', desc: 'Hook introducing a thread' }
 ];
 
+// Resilient multi-layer selector definitions (supporting modern Base UI + Tailwind and legacy React DOM)
+const SELECTORS = {
+  tweetArticle: 'article[data-testid="tweet"], article.group\\/post, article[role="article"], article',
+  tweetText: 'div[data-testid="tweetText"], [data-testid="tweetText"], div[dir="auto"][class*="whitespace-pre-wrap"], div[dir="auto"]',
+  userName: 'div[data-testid="User-Name"], [data-testid="User-Name"]',
+  toolbar: 'div[data-testid="toolBar"], [role="toolbar"], div[class*="toolbar"]',
+  tweetButton: '[data-testid="tweetButtonInline"], [data-testid="tweetButton"], button[data-testid*="tweetButton"]',
+  editor: 'div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"], div[contenteditable="true"][role="textbox"], div[contenteditable="true"]',
+  composeNavBtn: 'a[data-testid="SideNav_NewTweet_Button"], div[data-testid="SideNav_NewTweet_Button"], a[href="/compose/post"], a[href="/compose/tweet"]'
+};
+
 // Single global click listener to close open tone/style menus (prevents detached DOM memory leaks)
 document.addEventListener('click', (e) => {
   const clickedWrapper = e.target.closest?.('.gemini-reply-wrapper');
@@ -73,30 +84,30 @@ function showToast(message, type = 'info', actionBtn = null) {
 
 // Find tweet text and author for context
 function extractTweetContext(composerEl) {
+  // Helper to extract text and author from any tweet article element
+  const parseArticle = (tweetEl) => {
+    if (!tweetEl) return null;
+    const textEl = tweetEl.querySelector(SELECTORS.tweetText);
+    const author = extractAuthorHandle(tweetEl);
+    const text = textEl ? textEl.innerText.trim() : '';
+    return (text || author) ? { text, author } : null;
+  };
+
   // 1. Check if inside a modal reply dialog (pick the last tweet above the composer in a thread modal)
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
-    const tweetEls = modal.querySelectorAll('article[data-testid="tweet"]');
+    const tweetEls = modal.querySelectorAll(SELECTORS.tweetArticle);
     if (tweetEls.length > 0) {
-      const targetTweet = tweetEls[tweetEls.length - 1];
-      const textEl = targetTweet.querySelector('div[data-testid="tweetText"]');
-      const authorEl = targetTweet.querySelector('div[data-testid="User-Name"]');
-      return {
-        text: textEl ? textEl.innerText.trim() : '',
-        author: authorEl ? extractAuthorHandle(authorEl) : ''
-      };
+      const parsed = parseArticle(tweetEls[tweetEls.length - 1]);
+      if (parsed) return parsed;
     }
   }
 
-  // 2. If inline reply directly inside an article[data-testid="tweet"]
-  const closestTweet = composerEl.closest('article[data-testid="tweet"]');
+  // 2. If inline reply directly inside a tweet article
+  const closestTweet = composerEl.closest(SELECTORS.tweetArticle);
   if (closestTweet) {
-    const textEl = closestTweet.querySelector('div[data-testid="tweetText"]');
-    const authorEl = closestTweet.querySelector('div[data-testid="User-Name"]');
-    return {
-      text: textEl ? textEl.innerText.trim() : '',
-      author: authorEl ? extractAuthorHandle(authorEl) : ''
-    };
+    const parsed = parseArticle(closestTweet);
+    if (parsed) return parsed;
   }
 
   // 3. Walk all preceding siblings up the DOM tree above the inline reply container
@@ -104,19 +115,13 @@ function extractTweetContext(composerEl) {
   while (current && current !== document.body) {
     let prev = current.previousElementSibling;
     while (prev) {
-      const tweetMatches = prev.matches?.('article[data-testid="tweet"]')
+      const tweetMatches = prev.matches?.(SELECTORS.tweetArticle)
         ? [prev]
-        : Array.from(prev.querySelectorAll?.('article[data-testid="tweet"]') || []);
+        : Array.from(prev.querySelectorAll?.(SELECTORS.tweetArticle) || []);
       if (tweetMatches.length > 0) {
-        const targetTweet = tweetMatches[tweetMatches.length - 1];
-        const textEl = targetTweet.querySelector('div[data-testid="tweetText"]');
-        const authorEl = targetTweet.querySelector('div[data-testid="User-Name"]');
-        const text = textEl ? textEl.innerText.trim() : '';
-        if (text) {
-          return {
-            text: text,
-            author: authorEl ? extractAuthorHandle(authorEl) : ''
-          };
+        const parsed = parseArticle(tweetMatches[tweetMatches.length - 1]);
+        if (parsed && parsed.text) {
+          return parsed;
         }
       }
       prev = prev.previousElementSibling;
@@ -126,49 +131,71 @@ function extractTweetContext(composerEl) {
 
   // 4. Fallback to the focal/main tweet on an individual tweet status page
   if (window.location.pathname.includes('/status/')) {
-    const mainTweet = document.querySelector('article[data-testid="tweet"][tabindex="-1"]')
-      || document.querySelector('article[data-testid="tweet"]');
+    const mainTweet = document.querySelector('article[tabindex="-1"], ' + SELECTORS.tweetArticle);
     if (mainTweet) {
-      const textEl = mainTweet.querySelector('div[data-testid="tweetText"]');
-      const authorEl = mainTweet.querySelector('div[data-testid="User-Name"]');
-      return {
-        text: textEl ? textEl.innerText.trim() : '',
-        author: authorEl ? extractAuthorHandle(authorEl) : ''
-      };
+      const parsed = parseArticle(mainTweet);
+      if (parsed) return parsed;
     }
   }
 
   return { text: '', author: '' };
 }
 
-// Extract handle from author container
-function extractAuthorHandle(authorEl) {
-  const text = authorEl.innerText || '';
-  const match = text.match(/@([A-Za-z0-9_]+)/);
-  return match ? match[1] : '';
+// Extract handle from author container or tweet article element
+function extractAuthorHandle(containerEl) {
+  if (!containerEl) return '';
+
+  // 1. Check explicit User-Name selector first if available
+  const userNameEl = containerEl.querySelector?.(SELECTORS.userName) || (containerEl.matches?.(SELECTORS.userName) ? containerEl : null);
+  const textSource = userNameEl ? (userNameEl.innerText || '') : (containerEl.innerText || '');
+  const match = textSource.match(/@([A-Za-z0-9_]+)/);
+  if (match) return match[1];
+
+  // 2. Search links or spans inside container for @handle
+  if (typeof containerEl.querySelectorAll === 'function') {
+    const handleEl = Array.from(containerEl.querySelectorAll('a[href^="/"], span')).find(el => {
+      const txt = (el.innerText || '').trim();
+      return txt.startsWith('@') && /^@[A-Za-z0-9_]+$/.test(txt);
+    });
+    if (handleEl) {
+      return handleEl.innerText.trim().replace(/^@/, '');
+    }
+
+    // 3. Fallback: Parse root user profile link (e.g. href="/Google")
+    const userLink = containerEl.querySelector('a[href^="/"][data-status="active"], a[href^="/"][role="link"], a[href^="/"]');
+    if (userLink) {
+      const href = userLink.getAttribute('href') || '';
+      const linkMatch = href.match(/^\/([A-Za-z0-9_]+)$/);
+      if (linkMatch && !['home', 'explore', 'notifications', 'messages', 'i', 'compose'].includes(linkMatch[1].toLowerCase())) {
+        return linkMatch[1];
+      }
+    }
+  }
+
+  return '';
 }
 
-// Locate the DraftJS contenteditable editor associated with this composer
+// Locate the DraftJS or Lexical contenteditable editor associated with this composer
 function findAssociatedEditor(composerEl) {
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
-    const editor = modal.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
+    const editor = modal.querySelector(SELECTORS.editor);
     if (editor) return editor;
   }
 
   let parent = composerEl.parentElement;
   let levels = 0;
   while (parent && parent !== document.body && levels < 8) {
-    const editor = parent.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
+    const editor = parent.querySelector(SELECTORS.editor);
     if (editor) return editor;
     parent = parent.parentElement;
     levels++;
   }
 
-  return document.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
+  return document.querySelector(SELECTORS.editor);
 }
 
-// Insert reply or post text into Twitter's Draft.js editor cleanly (Async to allow React/Draft.js state sync)
+// Insert reply or post text into Twitter's Draft.js / Lexical editor cleanly (Async to allow React state sync)
 async function insertTextIntoEditor(editor, text) {
   if (!editor || !text) return false;
 
@@ -177,7 +204,7 @@ async function insertTextIntoEditor(editor, text) {
 
   editor.focus();
 
-  // Step 1: Select all existing content and allow Draft.js to sync its internal SelectionState
+  // Step 1: Select all existing content and allow Draft.js/Lexical to sync internal SelectionState
   if (currentContent.length > 0) {
     try {
       const sel = window.getSelection();
@@ -191,16 +218,31 @@ async function insertTextIntoEditor(editor, text) {
       document.execCommand('selectAll', false, null);
     } catch (e) {}
 
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise(r => setTimeout(r, 20));
 
     try {
+      editor.dispatchEvent(new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'deleteContentBackward'
+      }));
       document.execCommand('delete', false, null);
     } catch (e) {}
 
     await new Promise(r => setTimeout(r, 20));
   }
 
-  // Step 2: Dispatch synthetic paste event for Draft.js editOnPaste handler
+  // Step 2: Dispatch beforeinput with insertText for modern Lexical / Draft.js editors
+  try {
+    editor.dispatchEvent(new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: text
+    }));
+  } catch (e) {}
+
+  // Step 3: Dispatch synthetic paste event for Draft.js editOnPaste handler
   try {
     const dt = new DataTransfer();
     dt.setData('text/plain', text);
@@ -211,8 +253,8 @@ async function insertTextIntoEditor(editor, text) {
     }));
   } catch (e) {}
 
-  // Allow React 18 to flush DOM updates before verifying insertion
-  await new Promise(r => setTimeout(r, 40));
+  // Allow React 18 / Lexical to flush DOM updates before verifying insertion
+  await new Promise(r => setTimeout(r, 30));
 
   let updatedContent = (editor.innerText || editor.textContent || '').trim();
   const textSample = text.trim().substring(0, Math.min(20, text.trim().length));
@@ -225,11 +267,12 @@ async function insertTextIntoEditor(editor, text) {
     updatedContent = (editor.innerText || editor.textContent || '').trim();
   }
 
-  // Step 3: Dispatch input and change events so Twitter's React state updates
+  // Step 4: Dispatch input and change events so Twitter's React state and character counter reconcile
+  editor.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
   editor.dispatchEvent(new Event('input', { bubbles: true }));
   editor.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // Step 4: Place cursor cleanly at the end
+  // Step 5: Place cursor cleanly at the end
   setTimeout(() => {
     try {
       editor.focus();
@@ -337,11 +380,11 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
 function detectComposerType(composerEl) {
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
-    const hasParentTweet = !!modal.querySelector('article[data-testid="tweet"]');
+    const hasParentTweet = !!modal.querySelector(SELECTORS.tweetArticle);
     return hasParentTweet ? 'reply' : 'new_post';
   }
 
-  if (composerEl.closest('article[data-testid="tweet"]')) {
+  if (composerEl.closest(SELECTORS.tweetArticle)) {
     return 'reply';
   }
 
@@ -353,7 +396,7 @@ function detectComposerType(composerEl) {
   while (current && current !== document.body) {
     let prev = current.previousElementSibling;
     while (prev) {
-      if (prev.matches?.('article[data-testid="tweet"]') || prev.querySelector?.('article[data-testid="tweet"]')) {
+      if (prev.matches?.(SELECTORS.tweetArticle) || prev.querySelector?.(SELECTORS.tweetArticle)) {
         return 'reply';
       }
       prev = prev.previousElementSibling;
@@ -748,9 +791,23 @@ function createGeminiReplyElement(composerToolbar) {
 
 // Check and inject button into Twitter composers (and update if composer context changed)
 function injectGeminiButtons() {
-  const toolbars = document.querySelectorAll('div[data-testid="toolBar"]');
+  // Query standard toolbars or parent containers containing submit buttons
+  let toolbars = Array.from(document.querySelectorAll(SELECTORS.toolbar));
+
+  // Fallback: If no standard toolbar found, find submit buttons directly and use their parent row
+  if (toolbars.length === 0) {
+    const submitButtons = document.querySelectorAll(SELECTORS.tweetButton);
+    submitButtons.forEach(btn => {
+      const parentRow = btn.closest('div.flex, div[class*="flex"], div');
+      if (parentRow && !toolbars.includes(parentRow) && !parentRow.closest('#gemini-floating-hud')) {
+        toolbars.push(parentRow);
+      }
+    });
+  }
 
   toolbars.forEach(toolbar => {
+    if (toolbar.closest('#gemini-floating-hud')) return;
+
     const existingWrapper = toolbar.querySelector('.gemini-reply-wrapper');
     if (existingWrapper) {
       const currentMode = detectComposerType(toolbar);
@@ -764,7 +821,9 @@ function injectGeminiButtons() {
 
     toolbar.setAttribute('data-gemini-injected', 'true');
 
-    const tweetButton = toolbar.querySelector('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]');
+    const tweetButton = toolbar.querySelector(SELECTORS.tweetButton) ||
+      Array.from(toolbar.querySelectorAll('button')).find(b => /(?:post|reply)/i.test(b.innerText || ''));
+
     const geminiElement = createGeminiReplyElement(toolbar);
 
     if (tweetButton && tweetButton.parentElement) {
@@ -1367,22 +1426,17 @@ async function handleHudDraft(hudEl) {
     const engineLabel = response?.engine ? ` via ${response.engine}` : '';
     const postContent = response.post;
 
-    let editor = document.querySelector('div[role="dialog"] div[data-testid^="tweetTextarea_"][role="textbox"], div[role="dialog"] div[role="textbox"][contenteditable="true"]')
-      || document.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
+    let editor = document.querySelector(`div[role="dialog"] ${SELECTORS.editor}`)
+      || document.querySelector(SELECTORS.editor);
 
     if (!editor) {
-      const composeBtn = document.querySelector(
-        'a[data-testid="SideNav_NewTweet_Button"], ' +
-        'div[data-testid="SideNav_NewTweet_Button"], ' +
-        'a[href="/compose/post"], ' +
-        'a[href="/compose/tweet"]'
-      );
+      const composeBtn = document.querySelector(SELECTORS.composeNavBtn);
       if (composeBtn) {
         composeBtn.click();
         for (let i = 0; i < 15; i++) {
           await new Promise(r => setTimeout(r, 100));
-          editor = document.querySelector('div[role="dialog"] div[data-testid^="tweetTextarea_"][role="textbox"], div[role="dialog"] div[role="textbox"][contenteditable="true"]')
-            || document.querySelector('div[data-testid^="tweetTextarea_"][role="textbox"], div[role="textbox"][contenteditable="true"]');
+          editor = document.querySelector(`div[role="dialog"] ${SELECTORS.editor}`)
+            || document.querySelector(SELECTORS.editor);
           if (editor) break;
         }
       }
