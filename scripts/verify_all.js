@@ -107,6 +107,69 @@ const popupCode = fs.readFileSync(path.resolve(__dirname, '..', 'popup/popup.js'
 assert(popupCode.includes('https://x.com/intent/post?text='), 'Post Creator uses official x.com/intent/post Web Intent');
 assert(!popupCode.includes('https://x.com/compose/post?text='), 'Deprecated /compose/post query route eliminated');
 
+// 8. Universal Clean Output & Anti-Artifact Sanitization
+console.log('\n[Test Suite 8: Universal Clean Output & Anti-Artifact Sanitization]');
+assert(backgroundCode.includes('Never start or begin the reply with emojis'), 'Reply prompt instructs model never to start with emojis');
+assert(backgroundCode.includes('Never start or begin the tweet with emojis'), 'Post prompt instructs model never to start with emojis');
+assert(backgroundCode.includes('Plain text only. Do NOT output HTML, XML, URLs, or metadata'), 'Prompt strictly forbids HTML/XML/URLs/metadata');
+
+const sandbox = {};
+const helperFunctionsCode = `
+${backgroundCode.match(/function hasNoEmojiInstruction[\s\S]*?^}/m)[0]}
+${backgroundCode.match(/function hasNoHashtagInstruction[\s\S]*?^}/m)[0]}
+${backgroundCode.match(/function extractCustomCharLimit[\s\S]*?^}/m)[0]}
+${backgroundCode.match(/function sanitizeTweetOutput[\s\S]*?^}/m)[0]}
+`;
+vm.runInNewContext(helperFunctionsCode, sandbox);
+
+// Case 1: Image 1 truncated googleusercontent link at end
+const res1 = sandbox.sanitizeTweetOutput(`Frequent handle changes are a classic red flag for burner accounts or scammers trying to evade accountability. Good catch, tracking history is essential before trusting anyone online.\n\nhttp://googleusercontent.`);
+assert(!res1.includes('googleusercontent') && res1.includes('Frequent handle changes'), 'Image 1: Truncated http://googleusercontent. stripped cleanly from end');
+
+// Case 2: Image 2 leading emojis and ElicitationsGroup tags
+const res2 = sandbox.sanitizeTweetOutput(`🧦 😭 <ElicitationsGroup message="Want to...Bro changes his handle more often than his socks 🧦 😭 <ElicitationsGroup message="Want to...as identity crisis level o has identity crisis level 99`);
+assert(!res2.includes('ElicitationsGroup') && !res2.startsWith('🧦') && res2.startsWith('Bro changes') && res2.includes('🧦 😭 as identity crisis'), 'Image 2: ElicitationsGroup tags and leading emojis stripped; internal emojis preserved');
+
+// Case 3: Image 3 glued googleusercontent and leading emojis
+const res3 = sandbox.sanitizeTweetOutput(`🕵️ 💀\nhttp://googleusercontent.Even witness protection programs are less dramatic 🕵️ 💀\n\nhttp://googleusercontent.`);
+assert(!res3.includes('googleusercontent') && !res3.startsWith('🕵️') && res3.startsWith('Even witness protection') && res3.endsWith('🕵️ 💀'), 'Image 3: Glued http://googleusercontent. stripped without damaging adjacent text; leading emojis removed; trailing preserved');
+
+// Case 4: Full googleusercontent CDN URL
+const res4 = sandbox.sanitizeTweetOutput(`Check out this update: https://lh3.googleusercontent.com/d/xyz123abc for details.`);
+assert(!res4.includes('googleusercontent') && res4.includes('Check out this update') && res4.includes('for details.'), 'Full googleusercontent CDN link stripped cleanly');
+
+// Case 5: Google search grounding citations
+const res5 = sandbox.sanitizeTweetOutput(`Recent breakthroughs in AI models [1] were announced yesterday【2†source】!`);
+assert(!res5.includes('[1]') && !res5.includes('【2†source】') && res5.includes('Recent breakthroughs in AI models were announced yesterday!'), 'Google grounding footnotes and source brackets stripped');
+
+// Case 6: Preserve emojis in middle and end
+const res6 = sandbox.sanitizeTweetOutput(`This is great work 🚀 proud of the team! 👏`);
+assert(res6 === `This is great work 🚀 proud of the team! 👏`, 'Middle and ending emojis are preserved intact');
+
+// Case 7: Leading emoji with colon and punctuation
+const res7 = sandbox.sanitizeTweetOutput(`🔥: Absolutely legendary performance tonight!`);
+assert(res7 === `Absolutely legendary performance tonight!`, 'Leading emoji followed by colon is stripped cleanly');
+
+// Case 8: Custom Instructions "no emojis" strips all emojis
+const res8 = sandbox.sanitizeTweetOutput(`Great job 🎯 keep pushing! 🚀`, 'No emojis allowed');
+assert(!res8.includes('🎯') && !res8.includes('🚀') && res8.includes('Great job keep pushing!'), 'Custom instruction "no emojis" strips all emojis');
+
+// Case 9: Custom Instructions "no hashtags" strips hashtags
+const res9 = sandbox.sanitizeTweetOutput(`Great launch #AI #Tech to the moon`, 'no hashtags');
+assert(!res9.includes('#AI') && !res9.includes('#Tech') && res9.includes('Great launch to the moon'), 'Custom instruction "no hashtags" strips hashtags');
+
+// Case 10: Image 4 with raw ElicitationsGroup block and zero-width spaces
+const res10 = sandbox.sanitizeTweetOutput(`\u200B🧹 🙌 Finally, goodbye to the bot army 🧹 🙌 <ElicitationsGroup message="Want to explore further?"><Elicitation query="Bot farms sweating hard right now">Bot farms sweating hard right now</Elicitation></ElicitationsGroup>`);
+assert(res10 === `Finally, goodbye to the bot army 🧹 🙌`, 'Image 4: Full ElicitationsGroup block dropped, leading emojis stripped despite zero-width space, trailing emojis preserved');
+
+// Case 11: Image 4 flattened with duplicated phrases
+const res11 = sandbox.sanitizeTweetOutput(`🧹 🙌 Finally, goodbye to the bot army 🧹 🙌 Bot farms sweating hard right now Bot farms sweating hard right now`);
+assert(!res11.startsWith('🧹') && !res11.includes('sweating hard right now Bot farms'), 'Image 4 flattened: Leading emojis stripped and consecutive duplicate sentences deduplicated');
+
+// Case 12: Client-side sanitizer in content_twitter.js
+assert(contentTwitterCode.includes('function sanitizeForEditor(rawText)'), 'content_twitter.js implements sanitizeForEditor failsafe');
+assert(contentTwitterCode.includes('inputType: \'deleteByCut\''), 'content_twitter.js dispatches deleteByCut to ensure clean composer state');
+
 // Final summary
 console.log('\n====================================================');
 console.log(`Results: ${passedTests} passed, ${failedTests} failed`);

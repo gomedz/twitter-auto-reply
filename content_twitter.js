@@ -195,9 +195,51 @@ function findAssociatedEditor(composerEl) {
   return document.querySelector(SELECTORS.editor);
 }
 
+// Client-side failsafe sanitizer to ensure zero artifacts and no leading emojis before insertion
+function sanitizeForEditor(rawText) {
+  if (!rawText) return '';
+  let cleaned = rawText.trim();
+  // Strip invisible control characters, zero-width spaces, BOM
+  cleaned = cleaned.replace(/[\u200B-\u200F\uFEFF\u2060\u00AD]/g, '').trim();
+
+  // Strip Google Elicitation / prompt suggestions blocks
+  if (/<ElicitationsGroup\b[\s\S]*?<\/ElicitationsGroup>/i.test(cleaned)) {
+    const beforeBlock = cleaned.split(/<ElicitationsGroup/i)[0].trim();
+    if (beforeBlock.replace(/^[\p{Extended_Pictographic}\s]+/u, '').length >= 10) {
+      cleaned = beforeBlock;
+    }
+  }
+  cleaned = cleaned.replace(/<ElicitationsGroup\b[\s\S]*?<\/ElicitationsGroup>/gi, ' ');
+  cleaned = cleaned.replace(/<ElicitationsGroup\b(?:\s+message="[^"\n]{1,40}(?:\.{2,3}|…|"))?>?/gi, ' ');
+  cleaned = cleaned.replace(/<\/?Elicitation(?:sGroup)?[^>]*>/gi, ' ');
+  cleaned = cleaned.replace(/<Elicitation\b[^>]*>/gi, ' ');
+  cleaned = cleaned.replace(/<[a-zA-Z_:][a-zA-Z0-9_.:-]*(?:\s+[^>]*)?>/g, ' ').replace(/<\/[a-zA-Z_:][a-zA-Z0-9_.:-]*>/g, ' ');
+
+  // Strip googleusercontent links
+  cleaned = cleaned.replace(/https?:\/\/(?:[a-zA-Z0-9-]+\.)*googleusercontent(?:\.(?:com|org|net)(?:\/[^\s]*)?|\.(?=[A-Z\s]|$)|(?=[\s]|$))/gi, '');
+
+  // Strip consecutive duplicated phrases
+  cleaned = cleaned.replace(/\b(.{10,120}?)\s+\1\b/gi, '$1');
+
+  // Strip leading emojis
+  const emojiPrefix = /^(?:[\p{Extended_Pictographic}\uFE0E\uFE0F\u200D\u20E3]|\uD83C[\uDDE6-\uDDFF]|\uD83C[\uDFFB-\uDFFF])+/u;
+  let loops = 0;
+  while (loops < 10) {
+    const prev = cleaned;
+    cleaned = cleaned.replace(emojiPrefix, '').trim();
+    cleaned = cleaned.replace(/^[:\-–—|,!.\s]+/, '').trim();
+    if (cleaned === prev || !emojiPrefix.test(cleaned)) break;
+    loops++;
+  }
+
+  return cleaned.trim();
+}
+
 // Insert reply or post text into Twitter's Draft.js / Lexical editor cleanly (Async to allow React state sync)
-async function insertTextIntoEditor(editor, text) {
-  if (!editor || !text) return false;
+async function insertTextIntoEditor(editor, rawText) {
+  if (!editor || !rawText) return false;
+  const text = sanitizeForEditor(rawText);
+  if (!text) return false;
 
   const currentContent = (editor.innerText || editor.textContent || '').trim();
   if (currentContent === text.trim()) return true;
@@ -225,6 +267,11 @@ async function insertTextIntoEditor(editor, text) {
         bubbles: true,
         cancelable: true,
         inputType: 'deleteContentBackward'
+      }));
+      editor.dispatchEvent(new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'deleteByCut'
       }));
       document.execCommand('delete', false, null);
     } catch (e) {}

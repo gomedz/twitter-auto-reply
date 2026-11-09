@@ -52,25 +52,38 @@ In addition, audits identified:
   ```
 - Guarantees pre-filled text is preserved through navigation and login redirects.
 
+### Point 6: Universal Output Sanitization & Leading Emoji Prevention (`background.js` & `content_twitter.js`)
+- **Zero-Width Space & Control Character Purification**: Stripped invisible formatting characters (`\u200B-\u200F`, `\uFEFF`, `\u2060`, `\u00AD`) before emoji analysis, ensuring leading emojis like `🧹 🙌` are never obscured or bypassed.
+- **Complete Elicitations Block Dropping**: Augmented `sanitizeTweetOutput` to purge full `<ElicitationsGroup>...</ElicitationsGroup>` blocks along with their inner contents, preventing Google follow-up suggestion chips (e.g. `Bot farms sweating hard right now`) from concatenating into the tweet text.
+- **Client-Side Sanitizer Failsafe**: Integrated `sanitizeForEditor()` directly in `content_twitter.js` to inspect and clean all text before editor insertion, providing defense-in-depth even if background service workers are cached.
+- **Consecutive Phrase Deduplication**: Added automatic pattern deduplication for repeated identical clauses or sentences.
+- **Thorough Composer Reset**: Dispatches `deleteByCut` alongside `deleteContentBackward` to guarantee any previous composer text is wiped clean before new replies are inserted.
+- **Google CDN & Grounding URL Cleansing**: Strips `http://googleusercontent.` and CDN links whether standalone or glued to words (e.g. `http://googleusercontent.Even` -> `Even`).
+- **Grounding Footnote & Citation Removal**: Cleans citation brackets (`[1]`, `【1†source】`, `^[1]`).
+- **Anti-Leading-Emoji Rule Enforcement**: Strictly prevents leading emojis across both prompt requirements and multi-stage unicode regex, while preserving middle and ending emojis intact.
+
 ---
 
 ## 3. Automated Verification Results
 
-All 30 automated checks in `scripts/verify_all.js` passed with zero errors:
+All 50 automated checks in `scripts/verify_all.js` passed with zero errors:
 - **JavaScript Syntax & Compilation:** 5/5 passed.
-- **Manifest V3 Configuration:** 6/6 passed.
+- **Manifest V3 Configuration & Version:** 7/7 passed.
+- **Project Cleanliness & Release Subfolder:** 4/4 passed.
 - **Dual-Layer Multi-Selector Architecture:** 8/8 passed.
 - **React 18 / Lexical / Draft.js Event Dispatch:** 4/4 passed.
 - **Service Worker Fallback Cascade:** 3/3 passed.
 - **Gemini Web Auth Detection:** 2/2 passed.
 - **Standalone Post Creator Web Intent:** 2/2 passed.
+- **Universal Clean Output & Anti-Artifact Sanitization:** 15/15 passed.
 
 Live in-browser DOM testing against active X.com threads confirmed 100% extraction accuracy:
 - **Tweet Text Extracted:** `"Introducing Gemini 4 Carbon, our latest frontier model.\n\nCarbon delivers improved performance across..."`
 - **Author Extracted:** `"Google"`
 - **Gemini Guest Auth Status:** Correctly identified as `isLoggedIn: false`.
+- **Output Sanitization:** 100% clean across all 4 generation engines without leading emojis or internal Google artifacts.
 
 ---
 
-*Report generated and approved.*
+*Report updated and approved.*
 

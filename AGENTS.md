@@ -7,7 +7,7 @@ TASK:
 3. Ask me first if you have more than one solutions or suggestions.
 4. Create or add a new verification file if needed and update the main verification script.
 5. Always do complete verification in scripts folder at the end to make sure the whole system is working flawlessly.
-6. Always update the changelog file, commit to local, and make full report.
+6. Always update the changelog file and make full report. Do not commit to local directly unless user ask you to do so.
 7. Update the Report .md file in docs/ directory:
 - to existing .md file and same version
 - to new .md file and new version: if the user ask/tell you to do so

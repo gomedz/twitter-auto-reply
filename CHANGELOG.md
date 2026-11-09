@@ -5,6 +5,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [1.4.0] - 2026-11-09
 
+### Fixed & Hardened (Clean Output & Emoji Enforcement Across All Modes)
+- **Zero-Width Character & Invisible Control Stripping**: Added pre-sanitization stripping for invisible unicode control characters, zero-width spaces (`\u200B-\u200F`), Byte Order Marks (`\uFEFF`), word joiners (`\u2060`), and soft hyphens (`\u00AD`) so leading emoji regex patterns are never bypassed by invisible characters.
+- **Complete ElicitationsGroup Block Elimination**: Hardened both `background.js` and `content_twitter.js` to purge closed `<ElicitationsGroup>...</ElicitationsGroup>` blocks and unclosed tags entirely, preventing Google follow-up suggestion chips (e.g. repeated prompt chips) from concatenating into tweet replies.
+- **Client-Side Sanitizer Failsafe (`content_twitter.js`)**: Integrated `sanitizeForEditor()` as an in-page failsafe running directly inside the Twitter content script prior to editor insertion, guaranteeing clean output even if a background service worker was cached.
+- **Consecutive Phrase Deduplication**: Added regex deduplication to automatically detect and eliminate consecutive duplicate sentences or phrases.
+- **Robust Composer Reset**: Enhanced `insertTextIntoEditor` to dispatch `deleteByCut` alongside `deleteContentBackward` and selection clearing, ensuring any previous drafts or editor contents are wiped clean before new text is inserted.
+- **Google CDN & Grounding URL Cleansing**: Implemented targeted URL sanitization to strip Google CDN references (`http://googleusercontent.`, `https://googleusercontent.com`, and truncated links) whether standalone, at line endings, or glued directly to the next word (e.g., `http://googleusercontent.Even` -> `Even`), without damaging adjacent tweet text.
+- **Grounding Citation & Bracket Removal**: Stripped web grounding footnote markers (`[1]`, `【1†source】`, `^[1]`) from all output modes.
+- **Anti-Leading-Emoji Enforcement**: Guaranteed that generated replies and tweets never start or begin with emojis across all engines (`cloud_api`, `nano`, `headless`, `web_tab`):
+  - System prompt directives in `buildGeminiPrompt`, `buildGeminiPostPrompt`, `generateViaNano`, and `generateViaCloudAPI` strictly command the models never to start output with emojis.
+  - Programmatic multi-stage unicode regex in `sanitizeTweetOutput` automatically strips leading emoji clusters, flags, skin tones, and lingering punctuation (e.g., `🔥: `) while perfectly preserving emojis that appear naturally in the middle or end of sentences.
+- **Headless Extraction Filtering**: Added defensive filtering in `extractHeadlessReplyText` Strategy D to disqualify candidate strings containing Google internal RPC metadata, CDN URLs, or elicitation tags.
+
 ### Fixed & Synchronized (Modern X.com Architecture Migration)
 - **Dual-Layer Multi-Selector Engine**: Integrated resilient selector fallbacks (`SELECTORS`) across `content_twitter.js` supporting modern X Base UI + Tailwind DOM (`group/post`, `div[dir="auto"]`, `x-link`, `x-avatar`) where `data-testid` is stripped in production, maintaining full backwards compatibility with legacy React DOMs.
 - **In-Page Button Injection Restoration**: Upgraded `injectGeminiButtons` to locate toolbars via semantic ARIA roles and automatic parent-row discovery from submit buttons, restoring the "✦ AI Reply" and "✦ AI Post" buttons on modern X.com.

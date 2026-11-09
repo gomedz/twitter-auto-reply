@@ -58,3 +58,4 @@ fs.rmSync(stagingDir, { recursive: true, force: true });
 
 const stats = fs.statSync(zipPath);
 console.log(`✓ Successfully created ${zipName} (${stats.size} bytes) in release/`);
+

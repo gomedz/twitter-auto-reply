@@ -125,8 +125,8 @@ async function checkNanoStatus() {
 async function generateViaNano(promptText, customInstructions = '', mode = 'reply') {
   const charLimit = extractCustomCharLimit(customInstructions, 260);
   let systemContent = mode === 'post'
-    ? `You are an elite Twitter (X) creator. Output ONLY the single final tweet text to post. Keep standalone tweets concise, under ${charLimit} characters, punchy, no hashtags, no quotes.`
-    : `You are an authentic Twitter (X) assistant. Output ONLY the single final reply to post. Keep tweets and replies concise, under ${charLimit} characters, natural, no hashtags, no quotes.`;
+    ? `You are an elite Twitter (X) creator. Output ONLY the single final tweet text to post. Keep standalone tweets concise, under ${charLimit} characters, punchy, no hashtags, no quotes. Never start or begin the tweet with emojis. Plain text only without HTML/XML tags.`
+    : `You are an authentic Twitter (X) assistant. Output ONLY the single final reply to post. Keep tweets and replies concise, under ${charLimit} characters, natural, no hashtags, no quotes. Never start or begin the reply with emojis. Plain text only without HTML/XML tags.`;
 
   if (customInstructions) {
     systemContent += ` ABSOLUTE MANDATORY RULES (override everything else, no exceptions): ${customInstructions}`;
@@ -189,8 +189,8 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
 
   const charLimit = extractCustomCharLimit(customInstructions, 260);
   let systemInstructionText = mode === 'post'
-    ? `You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under ${charLimit} characters.`
-    : `You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under ${charLimit} characters.`;
+    ? `You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under ${charLimit} characters. Never start or begin the tweet with emojis. Plain text only without HTML/XML tags, citations, or internal links.`
+    : `You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under ${charLimit} characters. Never start or begin the reply with emojis. Plain text only without HTML/XML tags, citations, or internal links.`;
 
   if (customInstructions) {
     systemInstructionText += ' STRICT USER RULES: ' + customInstructions;
@@ -581,11 +581,21 @@ function extractHeadlessReplyText(rawText, promptText = '') {
         try {
           const innerData = JSON.parse(payloadStr);
           if (innerData?.[4]?.[0]?.[1]?.[0] && typeof innerData[4][0][1][0] === 'string') {
-            latestStreamedReply = innerData[4][0][1][0].trim();
+            let str = innerData[4][0][1][0].trim();
+            if (/<ElicitationsGroup/i.test(str)) {
+              const beforeEl = str.split(/<ElicitationsGroup/i)[0].trim();
+              if (beforeEl.length >= 10) str = beforeEl;
+            }
+            latestStreamedReply = str;
           } else {
             const rcCandidate = findCandidateByRc(innerData);
             if (rcCandidate) {
-              latestStreamedReply = rcCandidate.trim();
+              let str = rcCandidate.trim();
+              if (/<ElicitationsGroup/i.test(str)) {
+                const beforeEl = str.split(/<ElicitationsGroup/i)[0].trim();
+                if (beforeEl.length >= 10) str = beforeEl;
+              }
+              latestStreamedReply = str;
             }
           }
         } catch (innerErr) {}
@@ -633,11 +643,13 @@ function extractHeadlessReplyText(rawText, promptText = '') {
       !trimmedCandidate.startsWith('rc_') &&
       !trimmedCandidate.startsWith('c_') &&
       !trimmedCandidate.startsWith('r_') &&
+      !trimmedCandidate.startsWith('<Elicitation') &&
       !trimmedCandidate.includes('BardFrontendService') &&
       !trimmedCandidate.includes('SNlM0e') &&
       !trimmedCandidate.includes('FdrFJe') &&
       !trimmedCandidate.includes('cfb2h') &&
       !trimmedCandidate.includes('assistant.lamda') &&
+      !trimmedCandidate.includes('googleusercontent') &&
       !trimmedCandidate.includes('generic') &&
       !trimmedCandidate.includes('You are an authentic user') &&
       !trimmedCandidate.includes('You are crafting an authentic Twitter') &&
@@ -1243,6 +1255,8 @@ Requirements:
 - Conversational and human.
 - No quotation marks.
 - No conversational preamble.
+- Never start or begin the reply with emojis or emoticons. If emojis are used, place them naturally within or at the end of the sentence.
+- Plain text only. Do NOT output HTML, XML, URLs, or metadata.
 ${customInstructions ? '- Custom Rules override selected Tone and general Requirements.\n' : ''}${noEmoji ? '- No emojis.\n' : ''}${noHashtags ? '- No hashtags.\n' : ''}${bottomReminder}
 Reply:`;
 }
@@ -1293,16 +1307,81 @@ function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
 }
 
 function sanitizeTweetOutput(text, customInstructions = '') {
+  if (!text) return '';
   let cleaned = text.trim();
 
+  // 1. Strip invisible control characters, zero-width spaces, BOM, RTL/LTR marks, soft hyphens
+  cleaned = cleaned.replace(/[\u200B-\u200F\uFEFF\u2060\u00AD]/g, '').trim();
+
+  // 2. Remove conversational preamble labels
   cleaned = cleaned.replace(/^(?:sure(?: thing)?[!,.]?\s*)?(?:here(?:'s| is) (?:a |the )?(?:suggested |quick |twitter |witty )?(?:reply|tweet|post):?\s*|twitter (?:reply|post):?\s*|suggested (?:reply|post):?\s*|(?:reply|tweet):?\s*)/i, '').trim();
 
+  // 3. Handle Google Web UI / Elicitations blocks:
+  // If there is a complete closed <ElicitationsGroup>...</ElicitationsGroup> block:
+  // If text exists before it, that text is the real reply!
+  if (/<ElicitationsGroup\b[\s\S]*?<\/ElicitationsGroup>/i.test(cleaned)) {
+    const beforeBlock = cleaned.split(/<ElicitationsGroup/i)[0].trim();
+    if (beforeBlock.replace(/^[\p{Extended_Pictographic}\s]+/u, '').length >= 10) {
+      cleaned = beforeBlock;
+    } else {
+      // If the reply itself was wrapped inside the elicitation block, extract the query or text
+      const elicitationMatch = cleaned.match(/<Elicitation[^>]*query="([^"]+)"/i) ||
+                               cleaned.match(/<Elicitation[^>]*>([^<]+)<\/Elicitation>/i);
+      if (elicitationMatch && elicitationMatch[1]) {
+        cleaned = elicitationMatch[1].trim();
+      }
+    }
+  }
+
+  // 4. Strip closed ElicitationsGroup blocks or unclosed elicitation tags
+  cleaned = cleaned.replace(/<ElicitationsGroup\b[\s\S]*?<\/ElicitationsGroup>/gi, ' ');
+  cleaned = cleaned.replace(/<\/?(?:thought|think|scratchpad|annotation|search-result)[^>]*>[\s\S]*?<\/(?:thought|think|scratchpad|annotation|search-result)>/gi, ' ');
+  cleaned = cleaned.replace(/<\/?Elicitation(?:sGroup)?[^>]*>/gi, ' ');
+  // Unclosed/malformed ElicitationsGroup header tag e.g. <ElicitationsGroup message="Want to...
+  cleaned = cleaned.replace(/<ElicitationsGroup\b(?:\s+message="[^"\n]{1,40}(?:\.{2,3}|…|"))?>?/gi, ' ');
+  cleaned = cleaned.replace(/<Elicitation\b[^>]*>/gi, ' ');
+  cleaned = cleaned.replace(/<[a-zA-Z_:][a-zA-Z0-9_.:-]*(?:\s+[^>]*)?>/g, ' ').replace(/<\/[a-zA-Z_:][a-zA-Z0-9_.:-]*>/g, ' ');
+
+  // 5. Strip Google CDN, googleusercontent, and internal search grounding links
+  // Handles:
+  // - https?://...googleusercontent.com/...
+  // - http://googleusercontent.
+  // - http://googleusercontent.Even (glued to start of next word)
+  // - http://googleusercontent
+  cleaned = cleaned
+    .replace(/https?:\/\/(?:[a-zA-Z0-9-]+\.)*googleusercontent(?:\.(?:com|org|net)(?:\/[^\s]*)?|\.(?=[A-Z\s]|$)|(?=[\s]|$))/gi, '')
+    .replace(/https?:\/\/(?:www\.)?google\.com\/(?:search|url|aclk)\S*/gi, '');
+
+  // 6. Strip Grounding / Citation Footnotes (e.g. [1], [2], 【1†source】, etc.)
+  cleaned = cleaned
+    .replace(/\[\d+\]/g, '')
+    .replace(/【\d+†[^】]*】/g, '')
+    .replace(/\^\[\d+\]/g, '')
+    .replace(/\[citation:\d+\]/gi, '');
+
+  // 7. Strip consecutive duplicated sentences or long phrases (e.g. "Phrase A Phrase A")
+  cleaned = cleaned.replace(/\b(.{10,120}?)\s+\1\b/gi, '$1');
+
+  // 8. Unquote wrapping quotes
   if ((cleaned.startsWith('"') && cleaned.endsWith('"')) || (cleaned.startsWith('“') && cleaned.endsWith('”')) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
     cleaned = cleaned.slice(1, -1).trim();
   }
 
+  // 9. Strip leading/trailing asterisks
   cleaned = cleaned.replace(/^\*+\s*/, '').replace(/\s*\*+$/, '').trim();
 
+  // 10. Enforce "Never add emoji at the beginning" rule:
+  const emojiPrefix = /^(?:[\p{Extended_Pictographic}\uFE0E\uFE0F\u200D\u20E3]|\uD83C[\uDDE6-\uDDFF]|\uD83C[\uDFFB-\uDFFF])+/u;
+  let loopCount = 0;
+  while (loopCount < 10) {
+    const prev = cleaned;
+    cleaned = cleaned.replace(emojiPrefix, '').trim();
+    cleaned = cleaned.replace(/^[:\-–—|,!.\s]+/, '').trim();
+    if (cleaned === prev || !emojiPrefix.test(cleaned)) break;
+    loopCount++;
+  }
+
+  // 11. Normalise whitespace & line breaks
   cleaned = cleaned
     .replace(/\r\n/g, '\n')
     .replace(/[ \t]{2,}/g, ' ')
@@ -1310,6 +1389,7 @@ function sanitizeTweetOutput(text, customInstructions = '') {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
+  // 12. If user requested NO emojis anywhere:
   if (hasNoEmojiInstruction(customInstructions)) {
     cleaned = cleaned
       .replace(/[\p{Extended_Pictographic}\uFE00-\uFE0F]/ug, '')
@@ -1318,6 +1398,7 @@ function sanitizeTweetOutput(text, customInstructions = '') {
       .trim();
   }
 
+  // 13. If user requested NO hashtags:
   if (hasNoHashtagInstruction(customInstructions)) {
     cleaned = cleaned
       .replace(/#[A-Za-z0-9_]+/g, '')
@@ -1325,6 +1406,7 @@ function sanitizeTweetOutput(text, customInstructions = '') {
       .trim();
   }
 
+  // 14. Length trimming according to custom character limit:
   const customLimit = extractCustomCharLimit(customInstructions, null);
   const maxLimit = customLimit ? Math.min(customLimit, 280) : 280;
 
@@ -1383,6 +1465,8 @@ Strict Instructions:
 - Ensure natural conversational cadence, strong opening, and clean line breaks if needed.
 - Do NOT wrap in quotes.
 - Do NOT include preambles like "Here is a tweet:" or "Revised:".
+- Never start or begin the tweet with emojis or emoticons. If emojis are used, place them naturally within or at the end of sentences.
+- Plain text only. Do NOT output HTML, XML, URLs, or metadata.
 ${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
   }
 
@@ -1401,6 +1485,8 @@ Strict Instructions:
 - Natural, conversational human tone (avoid corporate jargon or generic influencer clichés).
 - Do NOT wrap in quotes.
 - Do NOT include preambles like "Here is a tweet:" or "Tweet:".
+- Never start or begin the tweet with emojis or emoticons. If emojis are used, place them naturally within or at the end of sentences.
+- Plain text only. Do NOT output HTML, XML, URLs, or metadata.
 ${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
 }
 
