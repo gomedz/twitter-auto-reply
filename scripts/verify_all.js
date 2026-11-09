@@ -44,11 +44,12 @@ jsFiles.forEach(relPath => {
 });
 
 // 2. Manifest.json Integrity
-console.log('\n[Test Suite 2: Manifest V3 Configuration]');
+console.log('\n[Test Suite 2: Manifest V3 Configuration & Version]');
 const manifestPath = path.resolve(__dirname, '..', 'manifest.json');
 try {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   assert(manifest.manifest_version === 3, 'Manifest version is 3');
+  assert(manifest.version === '1.4.0', 'Manifest version is 1.4.0');
   assert(manifest.background && manifest.background.service_worker === 'background.js', 'Service worker properly configured');
   assert(manifest.permissions.includes('storage') && manifest.permissions.includes('offscreen'), 'Required permissions declared');
   assert(manifest.host_permissions.includes('https://x.com/*'), 'Host permissions include x.com');
@@ -57,6 +58,16 @@ try {
 } catch (e) {
   assert(false, `Failed to parse manifest.json: ${e.message}`);
 }
+
+// 2b. Project Cleanliness & Release Subfolder
+console.log('\n[Test Suite 2b: Project Layout & Release Subfolder]');
+const releaseDir = path.resolve(__dirname, '..', 'release');
+assert(fs.existsSync(releaseDir) && fs.statSync(releaseDir).isDirectory(), 'Release directory exists');
+const rootFiles = fs.readdirSync(path.resolve(__dirname, '..'));
+const rootZips = rootFiles.filter(f => f.endsWith('.zip'));
+assert(rootZips.length === 0, 'No ZIP archive files in root project directory');
+const releaseZips = fs.readdirSync(releaseDir).filter(f => f.endsWith('.zip'));
+assert(releaseZips.length > 0, `All release packages located in release/ directory (${releaseZips.length} archives)`);
 
 // 3. Multi-Selector Architecture in content_twitter.js
 console.log('\n[Test Suite 3: Dual-Layer Multi-Selector Architecture]');
@@ -107,3 +118,4 @@ if (failedTests > 0) {
   console.log('\n🎉 ALL SYSTEMS VERIFIED AND WORKING FLAWLESSLY!\n');
   process.exit(0);
 }
+

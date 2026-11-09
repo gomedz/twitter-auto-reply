@@ -195,6 +195,14 @@ Whether you want lightning-fast cloud AI, 100% private on-device processing, or 
 
 ## 5. Version History
 
+- **v1.4.0** (Modern X.com Architecture Migration & Resilient Engine Fallback):
+  - Dual-Layer Multi-Selector Engine supporting X's Base UI + Tailwind DOM where `data-testid` is stripped, with legacy React fallback.
+  - Restored in-page AI button injection and context extraction on modern X status and thread views.
+  - Upgraded Draft.js / Lexical text insertion with synthetic `beforeinput` (`insertText`) and paste events.
+  - Restored full 4-tier fallback cascade from Cloud API through Nano, Headless, and Gemini Web Tab.
+  - Fixed false-positive authentication detection on Gemini Web Tab.
+  - Standardized Post Creator to official `https://x.com/intent/post?text=` Web Intent.
+  - Reorganized project release structure into a dedicated `release/` directory.
 - **v1.3.2** (Custom Prompt Hardening & Dynamic Length Controls):
   - Upgraded reply prompt builder with prompt sandwich pattern (top priority header and bottom reminder) to eliminate recency drift.
   - Added explicit hierarchy enforcement ensuring custom instructions strictly override selected preset tones and general requirements.
