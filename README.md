@@ -1,6 +1,6 @@
 # Twitter (X) AI Assistant: Reply & Post Creator
 
-![Twitter AI Auto Reply Banner](promo_marquee_1400x560.png)
+![Twitter AI Auto Reply Banner](assets/promo_marquee_1400x560.png)
 
 Generate intelligent auto-replies and craft viral tweets directly on **Twitter (X)** with zero friction — featuring on-device local AI, cloud REST API, and headless web sessions.
 

@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [2.0.0] - 2026-11-25
 
+### Architecture & Modularization
+- **Zero-Build Modular `src/` Structure (`manifest.json`, `src/`, `assets/`)**:
+  - Split the service worker into native MV3 ES modules (`"type": "module"` at `src/background/index.js`): `config.js`, `prompts.js`, and engine modules under `src/background/engines/` (`nano.js`, `cloud.js`, `custom.js`, `headless.js`, `webtab.js`).
+  - Split the X/Twitter content script into ordered single-responsibility modules under `src/content/twitter/` (`constants.js`, `dom.js`, `composer.js`, `hud.js`, `hud.css`), relocated `gemini.js` to `src/content/gemini/`, relocated `offscreen.*` to `src/offscreen/`, relocated `popup/` to `src/popup/`, and moved the README banner image to `assets/promo_marquee_1400x560.png`.
+  - Updated `scripts/verify_all.js`, `scripts/test_core.js`, and `scripts/build_zip.js` for real ESM syntax validation (`--input-type=module --check`), modular VM sandbox tests, and clean `manifest.json` + `icons/` + `src/` packaging.
+
 ### Added & Updated
 - **Refreshed Extension & Popup Icons (`icons/icon-*.png`, `popup/popup.html`, `popup/popup.css`)**: Replaced the legacy circular blue star icon and popup CSS `✦` badge with the new Neon Glass `X✦` squircle monogram (transparent background, `#1d9bf0 → #8a2be2` ring and ribbon gradient, crisp 16×16 / 48×48 / 128×128 exports).
 - **Updated Floating HUD Branding (`content_twitter.js`)**: Renamed the expanded Floating HUD header from `Gemini Assistant` to **`X AI Assistant`** and the collapsed HUD pill from `Gemini AI` to **`X AI`** so the on-page UI aligns cleanly with multi-engine support (Nano, Cloud, Custom API, Headless, Web).

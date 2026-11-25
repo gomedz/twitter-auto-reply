@@ -9,7 +9,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_popup": "popup/popup.html",
+    "default_popup": "src/popup/popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png",
@@ -17,7 +17,8 @@
     }
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "src/background/index.js",
+    "type": "module"
   },
   "permissions": [
     "storage",
@@ -45,10 +46,13 @@
         "https://x.com/*"
       ],
       "js": [
-        "content_twitter.js"
+        "src/content/twitter/constants.js",
+        "src/content/twitter/dom.js",
+        "src/content/twitter/composer.js",
+        "src/content/twitter/hud.js"
       ],
       "css": [
-        "content_twitter.css"
+        "src/content/twitter/hud.css"
       ],
       "run_at": "document_idle"
     },
@@ -57,7 +61,7 @@
         "https://gemini.google.com/*"
       ],
       "js": [
-        "content_gemini.js"
+        "src/content/gemini/gemini.js"
       ],
       "run_at": "document_idle"
     }
