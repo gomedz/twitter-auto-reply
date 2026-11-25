@@ -3,6 +3,22 @@
 All notable changes to **Twitter AI Auto Reply & Post Creator** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-11-25
+
+### Added
+- **Quote Tweet Mode (`✦ AI Quote`) (`content_twitter.js` & `background.js`)**: Added structural `compareDocumentPosition` detection for Quote Tweet dialogs (`article` following `editor`), rendering a dedicated `✦ AI Quote` split-button + quote popover and passing quoted tweet text and `@author` context to `buildGeminiPostPrompt()`.
+- **Runtime Unit & DOM-Mock Test Suite (`scripts/test_core.js`)**: Added 22 runtime tests integrated into `scripts/verify_all.js` covering sanitization edge cases, Batchexecute extraction, Cloud API validation/403 fast-fail, `content_gemini.js` auth checks, and `content_twitter.js` priority selectors & composer detection.
+
+### Fixed & Hardened
+- **Priority-Ordered Selector Engine (`content_twitter.js`)**: Added `queryFirst()`, `queryAllFirst()`, and `closestFirst()` helpers plus `extractTweetTextFromArticle()` so `SELECTORS` evaluate in strict priority order instead of CSS comma DOM-order shadowing (`div[data-testid="tweetText"]` and `whitespace-pre-wrap` always beat generic `div[dir="auto"]`, and nested quoted `<article>` elements no longer shadow parent tweets).
+- **Per-Button Toolbar Discovery & Bounded Composer Detection (`content_twitter.js`)**: Updated `injectGeminiButtons()` to run `findToolbarContainerForSubmit()` per unmatched submit button even when other toolbars exist, and bounded `detectComposerType()` ancestor traversal to 3 levels so `/home` timeline tweets cannot misclassify the home composer as a reply.
+- **Computed Luminance Theme Sync (`content_twitter.js` & `content_twitter.css`)**: Replaced fragile inline-style CSS dark/light rules with computed background luminance detection (`syncPageThemeClass()` toggling `.gemini-x-light`), keeping the Floating HUD and menus legible across Lights Out, Dim, and Light themes on modern X.com.
+- **Safe Runtime Messaging, Busy-Lock & Cross-Domain HUD Sync (`content_twitter.js`)**: Added `sendRuntimeMessage()` to surface clear refresh guidance on extension updates/context invalidation, fixed the `btnMain` click busy-lock race (`resolvingSettings`), and synced Floating HUD coordinates across `x.com` and `twitter.com` via `chrome.storage.local`.
+- **Sanitizer Precision & X Premium Length Support (`background.js` & `content_twitter.js`)**: Fixed the leading-emoji loop so leading punctuation (`...`, `-`) is preserved when no leading emoji exists; narrowed tag stripping with strict attribute matching so `<` and `>` in prose (e.g. `a<b and c>d`) are preserved; and allowed custom limits up to 2000 characters when explicitly requested in Custom Instructions (keeping 280 as default cap).
+- **Cloud API Auth Fast-Fail & Key Validator Accuracy (`background.js`)**: Treated HTTP `401`/`403` key/permission errors as immediate config failures without wasting fallback cycles, fixed `validateCloudAPIKey()` so failing `generateContent` checks don't report `valid: true`, and refined `extractHeadlessReplyText()` Strategy D to prefer the first clean tweet-length candidate.
+- **Gemini Web Tab Isolation & Auth Guard (`content_gemini.js`)**: Added `ensureFreshChatIfNeeded()` to start a fresh chat when prior responses exist, tightened `checkLoginStatus()` to require chat UI when an avatar is present, scoped `RESPONSE_SELECTORS` away from unrelated markdown nodes, and added fast error-banner detection in `waitForGeminiResponse()`.
+- **Popup Sync & Documentation Alignment (`popup/popup.js`, `README.md`, `chromewebstore.md`, `docs/REPORT_v1.5.0.md`)**: Synced `showFloatingHud`, `autoCloseTab`, and dynamic `cloudModel` options in `chrome.storage.onChanged`, normalized custom instructions trimming, linked `btn-check-nano` directly to the README Gemini Nano anchor, and aligned model/style documentation.
+
 ## [1.4.0] - 2026-11-09
 
 ### Fixed & Hardened (Clean Output & Emoji Enforcement Across All Modes)

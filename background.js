@@ -266,13 +266,18 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
       const errJson = await response.json().catch(() => ({}));
       lastErrorDetail = errJson.error?.message || `HTTP ${response.status} ${response.statusText}`;
 
-      if (response.status === 400 && (lastErrorDetail.includes('API_KEY_INVALID') || lastErrorDetail.includes('not valid') || lastErrorDetail.includes('API key not valid'))) {
-        throw new Error(`Google API Key is invalid: ${lastErrorDetail}`);
+      const isAuthOrKeyError =
+        response.status === 401 ||
+        response.status === 403 ||
+        (response.status === 400 && /API_KEY_INVALID|API key not valid|not valid|API key expired/i.test(lastErrorDetail));
+
+      if (isAuthOrKeyError) {
+        throw new Error(`Google API Key is invalid or unauthorized (${response.status}): ${lastErrorDetail}`);
       }
 
       console.warn(`[Background] Model '${model}' failed after ${Date.now() - reqStart}ms (${response.status}: ${lastErrorDetail}). Trying next candidate...`);
     } catch (fetchErr) {
-      if (fetchErr.message && (fetchErr.message.includes('API Key is invalid') || fetchErr.message.includes('API key is missing'))) {
+      if (fetchErr.message && /API Key is invalid|API key is missing|unauthorized/i.test(fetchErr.message)) {
         throw fetchErr;
       }
       lastErrorDetail = fetchErr.message;
@@ -378,18 +383,21 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.5-flash-li
       };
     }
 
+    if (testRes.status === 400 || testRes.status === 401 || testRes.status === 403) {
+      return {
+        valid: false,
+        message: `Key rejected or unauthorized (${testRes.status}): ${errDetail.substring(0, 100)}`
+      };
+    }
+
     return {
-      valid: true,
-      model: modelToTest,
-      apiVersion: 'v1beta',
-      message: `✓ Valid API Key! (Status: ${errDetail.substring(0, 80)})`
+      valid: false,
+      message: `Model check failed (HTTP ${testRes.status}): ${errDetail.substring(0, 80)}`
     };
   } catch (genErr) {
     return {
-      valid: true,
-      model: modelToTest,
-      apiVersion: 'v1beta',
-      message: `✓ Valid API Key! (${genErr.message})`
+      valid: false,
+      message: `Network/timeout error testing ${modelToTest}: ${genErr.message}`
     };
   }
 }
@@ -657,7 +665,9 @@ function extractHeadlessReplyText(rawText, promptText = '') {
       /\s/.test(trimmedCandidate)
     ) {
       if (trimmedCandidate.length <= 280) {
-        bestTweetCandidate = trimmedCandidate;
+        if (!bestTweetCandidate) {
+          bestTweetCandidate = trimmedCandidate;
+        }
       } else if (trimmedCandidate.length > maxFallbackLen) {
         maxFallbackLen = trimmedCandidate.length;
         bestFallbackCandidate = trimmedCandidate;
@@ -864,7 +874,7 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
     }
 
     if (engine === 'cloud_api') {
-      const isConfigError = /api key.*(?:missing|invalid|not valid)/i.test(primaryErr.message);
+      const isConfigError = /api key.*(?:missing|invalid|not valid|expired|unauthorized)|permission_denied/i.test(primaryErr.message);
       if (isConfigError) {
         throw primaryErr;
       }
@@ -1211,10 +1221,10 @@ function hasNoHashtagInstruction(instructions) {
 
 function extractCustomCharLimit(instructions, defaultLimit = 260) {
   if (!instructions) return defaultLimit;
-  const match = instructions.match(/(?:under|max|less than|within|limit to)\s*(\d{2,3})\s*(?:chars|characters)/i);
+  const match = instructions.match(/(?:under|max|less than|within|limit to)\s*(\d{2,4})\s*(?:chars|characters)/i);
   if (match) {
     const parsed = parseInt(match[1], 10);
-    if (!isNaN(parsed) && parsed >= 20 && parsed <= 280) {
+    if (!isNaN(parsed) && parsed >= 20 && parsed <= 2000) {
       return parsed;
     }
   }
@@ -1340,7 +1350,7 @@ function sanitizeTweetOutput(text, customInstructions = '') {
   // Unclosed/malformed ElicitationsGroup header tag e.g. <ElicitationsGroup message="Want to...
   cleaned = cleaned.replace(/<ElicitationsGroup\b(?:\s+message="[^"\n]{1,40}(?:\.{2,3}|…|"))?>?/gi, ' ');
   cleaned = cleaned.replace(/<Elicitation\b[^>]*>/gi, ' ');
-  cleaned = cleaned.replace(/<[a-zA-Z_:][a-zA-Z0-9_.:-]*(?:\s+[^>]*)?>/g, ' ').replace(/<\/[a-zA-Z_:][a-zA-Z0-9_.:-]*>/g, ' ');
+  cleaned = cleaned.replace(/<\/?(?:thought|think|scratchpad|annotation|search-result|p|div|span|br|a|b|i|em|strong|code|pre|ul|ol|li|blockquote|h[1-6])(?:\s+[a-zA-Z_:][a-zA-Z0-9_.:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))*\s*\/?>/gi, ' ');
 
   // 5. Strip Google CDN, googleusercontent, and internal search grounding links
   // Handles:
@@ -1370,14 +1380,14 @@ function sanitizeTweetOutput(text, customInstructions = '') {
   // 9. Strip leading/trailing asterisks
   cleaned = cleaned.replace(/^\*+\s*/, '').replace(/\s*\*+$/, '').trim();
 
-  // 10. Enforce "Never add emoji at the beginning" rule:
+  // 10. Enforce "Never add emoji at the beginning" rule (only strip trailing punctuation if a leading emoji was actually removed):
   const emojiPrefix = /^(?:[\p{Extended_Pictographic}\uFE0E\uFE0F\u200D\u20E3]|\uD83C[\uDDE6-\uDDFF]|\uD83C[\uDFFB-\uDFFF])+/u;
   let loopCount = 0;
-  while (loopCount < 10) {
+  while (loopCount < 10 && emojiPrefix.test(cleaned)) {
     const prev = cleaned;
     cleaned = cleaned.replace(emojiPrefix, '').trim();
     cleaned = cleaned.replace(/^[:\-–—|,!.\s]+/, '').trim();
-    if (cleaned === prev || !emojiPrefix.test(cleaned)) break;
+    if (cleaned === prev) break;
     loopCount++;
   }
 
@@ -1406,9 +1416,9 @@ function sanitizeTweetOutput(text, customInstructions = '') {
       .trim();
   }
 
-  // 14. Length trimming according to custom character limit:
+  // 14. Length trimming according to custom character limit (defaults to 280 unless user explicitly specified a custom limit):
   const customLimit = extractCustomCharLimit(customInstructions, null);
-  const maxLimit = customLimit ? Math.min(customLimit, 280) : 280;
+  const maxLimit = customLimit || 280;
 
   if (cleaned.length > maxLimit) {
     const cut = cleaned.substring(0, Math.max(10, maxLimit - 5));
@@ -1425,7 +1435,7 @@ function sanitizeTweetOutput(text, customInstructions = '') {
   return cleaned;
 }
 
-function buildGeminiPostPrompt({ topicOrDraft, isDraft, style, customInstructions }) {
+function buildGeminiPostPrompt({ topicOrDraft, isDraft, isQuote, quotedText, quotedAuthor, style, customInstructions }) {
   const styleDescriptions = {
     engaging: 'highly engaging, punchy, with a strong curiosity hook in the first line that grabs immediate attention',
     insight: 'informative, valuable, and actionable thought leadership or life/tech lessons',
@@ -1448,6 +1458,29 @@ function buildGeminiPostPrompt({ topicOrDraft, isDraft, style, customInstruction
   const hierarchyRule = customInstructions
     ? '- Custom Rules override selected Style and general Requirements.\n'
     : '';
+
+  if (isQuote && quotedText) {
+    const authorMention = quotedAuthor ? ` by @${quotedAuthor}` : '';
+    const angleNote = topicOrDraft && topicOrDraft !== quotedText
+      ? `\nUser's angle/draft:\n"""\n${topicOrDraft}\n"""\n`
+      : '';
+    return `${customBlock}You are an elite Twitter (X) creator. Write a compelling quote tweet commenting on this post${authorMention}:
+
+Quoted Tweet:
+"""
+${quotedText}
+"""
+${angleNote}
+Target Style: ${selectedStyle}.
+Strict Instructions:
+- Output ONLY the final quote tweet text to post above the quoted tweet.
+- Under ${charLimit} characters total.
+- Add value, a sharp takeaway, or witty commentary without merely repeating the quoted tweet.
+- Do NOT wrap in quotes or include preambles.
+- Never start or begin the tweet with emojis or emoticons. If emojis are used, place them naturally within or at the end of sentences.
+- Plain text only. Do NOT output HTML, XML, URLs, or metadata.
+${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+  }
 
   if (isDraft) {
     return `${customBlock}You are an elite Twitter (X) creator. Rewrite, polish, and optimize the following rough draft into a high-performing standalone tweet.

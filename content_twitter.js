@@ -34,6 +34,95 @@ const SELECTORS = {
   composeNavBtn: 'a[data-testid="SideNav_NewTweet_Button"], div[data-testid="SideNav_NewTweet_Button"], a[href="/compose/post"], a[href="/compose/tweet"]'
 };
 
+// Priority-ordered selector helpers (avoids CSS comma DOM-order shadowing)
+function splitSelectorGroup(selectorGroup) {
+  return String(selectorGroup || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function queryFirst(root, selectorGroup) {
+  if (!root || typeof root.querySelector !== 'function') return null;
+  for (const sel of splitSelectorGroup(selectorGroup)) {
+    try {
+      const match = root.querySelector(sel);
+      if (match) return match;
+    } catch (e) {}
+  }
+  return null;
+}
+
+function queryAllFirst(root, selectorGroup) {
+  if (!root || typeof root.querySelectorAll !== 'function') return [];
+  for (const sel of splitSelectorGroup(selectorGroup)) {
+    try {
+      const matches = root.querySelectorAll(sel);
+      if (matches && matches.length > 0) return Array.from(matches);
+    } catch (e) {}
+  }
+  return [];
+}
+
+function closestFirst(el, selectorGroup) {
+  if (!el || typeof el.closest !== 'function') return null;
+  for (const sel of splitSelectorGroup(selectorGroup)) {
+    try {
+      const match = el.closest(sel);
+      if (match) return match;
+    } catch (e) {}
+  }
+  return null;
+}
+
+// Safe runtime messaging with extension reload / context invalidation detection
+function sendRuntimeMessage(message) {
+  return new Promise((resolve, reject) => {
+    try {
+      if (!chrome?.runtime?.id) {
+        return reject(new Error('Extension updated — please refresh this X.com tab.'));
+      }
+      chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+          const msg = chrome.runtime.lastError.message || 'Communication error';
+          if (/context invalidated|receiving end does not exist/i.test(msg)) {
+            return reject(new Error('Extension updated — please refresh this X.com tab.'));
+          }
+          return reject(new Error(msg));
+        }
+        resolve(response);
+      });
+    } catch (err) {
+      if (/context invalidated/i.test(err?.message || '')) {
+        reject(new Error('Extension updated — please refresh this X.com tab.'));
+      } else {
+        reject(err);
+      }
+    }
+  });
+}
+
+// Detect X.com actual computed background theme (Lights Out / Dim vs Light)
+function syncPageThemeClass() {
+  try {
+    if (!document.documentElement || !document.body) return;
+    const bg = window.getComputedStyle(document.body).backgroundColor || '';
+    const rgbMatch = bg.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?/i);
+    let isLight = false;
+    if (rgbMatch) {
+      const alpha = rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1;
+      if (alpha > 0.1) {
+        const r = parseInt(rgbMatch[1], 10);
+        const g = parseInt(rgbMatch[2], 10);
+        const b = parseInt(rgbMatch[3], 10);
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        isLight = luminance > 128;
+      }
+    }
+    document.documentElement.classList.toggle('gemini-x-light', isLight);
+  } catch (e) {}
+}
+
 // Single global click listener to close open tone/style menus (prevents detached DOM memory leaks)
 document.addEventListener('click', (e) => {
   const clickedWrapper = e.target.closest?.('.gemini-reply-wrapper');
@@ -82,42 +171,102 @@ function showToast(message, type = 'info', actionBtn = null) {
   }, 5000);
 }
 
+// Extract primary tweet text from an article element without capturing handles/timestamps/quoted chrome
+function extractTweetTextFromArticle(tweetEl) {
+  if (!tweetEl) return '';
+
+  const specificSelectors = [
+    'div[data-testid="tweetText"]',
+    '[data-testid="tweetText"]',
+    'div[dir="auto"][class*="whitespace-pre-wrap"]'
+  ];
+
+  for (const sel of specificSelectors) {
+    try {
+      const candidates = Array.from(tweetEl.querySelectorAll(sel));
+      const direct = candidates.find(el => {
+        const closestArt = el.closest('article');
+        return !closestArt || closestArt === tweetEl;
+      });
+      if (direct && (direct.innerText || direct.textContent || '').trim()) {
+        return (direct.innerText || direct.textContent || '').trim();
+      }
+    } catch (e) {}
+  }
+
+  // Fallback to dir="auto" excluding author metadata, timestamps, handles, and nested quoted tweets
+  try {
+    const dirAutos = Array.from(tweetEl.querySelectorAll('div[dir="auto"]')).filter(el => {
+      const closestArt = el.closest('article');
+      if (closestArt && closestArt !== tweetEl) return false;
+      if (el.closest('[data-testid="User-Name"], time')) return false;
+      const txt = (el.innerText || el.textContent || '').trim();
+      if (!txt) return false;
+      if (/^@[A-Za-z0-9_]+$/.test(txt)) return false;
+      if (/^(?:Pinned|Reposted|Retweeted|Replying to|Show more|Translate post)$/i.test(txt)) return false;
+      if (el.closest('a[href^="/"]') && txt.length < 35 && !/\s/.test(txt)) return false;
+      return true;
+    });
+    if (dirAutos.length > 0) {
+      // Pick the longest meaningful text block if multiple dir="auto" exist
+      dirAutos.sort((a, b) => (b.innerText || b.textContent || '').length - (a.innerText || a.textContent || '').length);
+      return (dirAutos[0].innerText || dirAutos[0].textContent || '').trim();
+    }
+  } catch (e) {}
+
+  return '';
+}
+
 // Find tweet text and author for context
 function extractTweetContext(composerEl) {
   // Helper to extract text and author from any tweet article element
   const parseArticle = (tweetEl) => {
     if (!tweetEl) return null;
-    const textEl = tweetEl.querySelector(SELECTORS.tweetText);
+    const text = extractTweetTextFromArticle(tweetEl);
     const author = extractAuthorHandle(tweetEl);
-    const text = textEl ? textEl.innerText.trim() : '';
     return (text || author) ? { text, author } : null;
   };
 
-  // 1. Check if inside a modal reply dialog (pick the last tweet above the composer in a thread modal)
+  // 1. Check if inside a modal dialog (Reply modal: article precedes editor; Quote modal: article follows editor)
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
-    const tweetEls = modal.querySelectorAll(SELECTORS.tweetArticle);
+    const tweetEls = queryAllFirst(modal, SELECTORS.tweetArticle);
     if (tweetEls.length > 0) {
+      const editor = findAssociatedEditor(composerEl);
+      if (editor && typeof editor.compareDocumentPosition === 'function') {
+        const precedingTweets = tweetEls.filter(t => (editor.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_PRECEDING) !== 0);
+        if (precedingTweets.length > 0) {
+          const parsed = parseArticle(precedingTweets[precedingTweets.length - 1]);
+          if (parsed) return parsed;
+        }
+        const followingTweets = tweetEls.filter(t => (editor.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+        if (followingTweets.length > 0) {
+          const parsed = parseArticle(followingTweets[0]);
+          if (parsed) return { ...parsed, isQuote: true };
+        }
+      }
       const parsed = parseArticle(tweetEls[tweetEls.length - 1]);
       if (parsed) return parsed;
     }
   }
 
   // 2. If inline reply directly inside a tweet article
-  const closestTweet = composerEl.closest(SELECTORS.tweetArticle);
+  const closestTweet = closestFirst(composerEl, SELECTORS.tweetArticle);
   if (closestTweet) {
     const parsed = parseArticle(closestTweet);
     if (parsed) return parsed;
   }
 
-  // 3. Walk all preceding siblings up the DOM tree above the inline reply container
+  // 3. Walk up to 4 container levels above an inline reply box to find the immediately preceding tweet article
   let current = composerEl;
-  while (current && current !== document.body) {
+  let depth = 0;
+  while (current && current !== document.body && depth < 4) {
     let prev = current.previousElementSibling;
     while (prev) {
-      const tweetMatches = prev.matches?.(SELECTORS.tweetArticle)
-        ? [prev]
-        : Array.from(prev.querySelectorAll?.(SELECTORS.tweetArticle) || []);
+      const isArticle = splitSelectorGroup(SELECTORS.tweetArticle).some(sel => {
+        try { return prev.matches?.(sel); } catch (e) { return false; }
+      });
+      const tweetMatches = isArticle ? [prev] : queryAllFirst(prev, SELECTORS.tweetArticle);
       if (tweetMatches.length > 0) {
         const parsed = parseArticle(tweetMatches[tweetMatches.length - 1]);
         if (parsed && parsed.text) {
@@ -127,11 +276,12 @@ function extractTweetContext(composerEl) {
       prev = prev.previousElementSibling;
     }
     current = current.parentElement;
+    depth++;
   }
 
   // 4. Fallback to the focal/main tweet on an individual tweet status page
   if (window.location.pathname.includes('/status/')) {
-    const mainTweet = document.querySelector('article[tabindex="-1"], ' + SELECTORS.tweetArticle);
+    const mainTweet = document.querySelector('article[tabindex="-1"]') || queryFirst(document, SELECTORS.tweetArticle);
     if (mainTweet) {
       const parsed = parseArticle(mainTweet);
       if (parsed) return parsed;
@@ -146,7 +296,8 @@ function extractAuthorHandle(containerEl) {
   if (!containerEl) return '';
 
   // 1. Check explicit User-Name selector first if available
-  const userNameEl = containerEl.querySelector?.(SELECTORS.userName) || (containerEl.matches?.(SELECTORS.userName) ? containerEl : null);
+  const userNameEl = queryFirst(containerEl, SELECTORS.userName) ||
+    (splitSelectorGroup(SELECTORS.userName).some(sel => { try { return containerEl.matches?.(sel); } catch (e) { return false; } }) ? containerEl : null);
   const textSource = userNameEl ? (userNameEl.innerText || '') : (containerEl.innerText || '');
   const match = textSource.match(/@([A-Za-z0-9_]+)/);
   if (match) return match[1];
@@ -179,20 +330,20 @@ function extractAuthorHandle(containerEl) {
 function findAssociatedEditor(composerEl) {
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
-    const editor = modal.querySelector(SELECTORS.editor);
+    const editor = queryFirst(modal, SELECTORS.editor);
     if (editor) return editor;
   }
 
   let parent = composerEl.parentElement;
   let levels = 0;
   while (parent && parent !== document.body && levels < 8) {
-    const editor = parent.querySelector(SELECTORS.editor);
+    const editor = queryFirst(parent, SELECTORS.editor);
     if (editor) return editor;
     parent = parent.parentElement;
     levels++;
   }
 
-  return document.querySelector(SELECTORS.editor);
+  return queryFirst(document, SELECTORS.editor);
 }
 
 // Client-side failsafe sanitizer to ensure zero artifacts and no leading emojis before insertion
@@ -213,7 +364,7 @@ function sanitizeForEditor(rawText) {
   cleaned = cleaned.replace(/<ElicitationsGroup\b(?:\s+message="[^"\n]{1,40}(?:\.{2,3}|…|"))?>?/gi, ' ');
   cleaned = cleaned.replace(/<\/?Elicitation(?:sGroup)?[^>]*>/gi, ' ');
   cleaned = cleaned.replace(/<Elicitation\b[^>]*>/gi, ' ');
-  cleaned = cleaned.replace(/<[a-zA-Z_:][a-zA-Z0-9_.:-]*(?:\s+[^>]*)?>/g, ' ').replace(/<\/[a-zA-Z_:][a-zA-Z0-9_.:-]*>/g, ' ');
+  cleaned = cleaned.replace(/<\/?(?:thought|think|scratchpad|annotation|search-result|p|div|span|br|a|b|i|em|strong|code|pre|ul|ol|li|blockquote|h[1-6])(?:\s+[a-zA-Z_:][a-zA-Z0-9_.:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))*\s*\/?>/gi, ' ');
 
   // Strip googleusercontent links
   cleaned = cleaned.replace(/https?:\/\/(?:[a-zA-Z0-9-]+\.)*googleusercontent(?:\.(?:com|org|net)(?:\/[^\s]*)?|\.(?=[A-Z\s]|$)|(?=[\s]|$))/gi, '');
@@ -221,18 +372,18 @@ function sanitizeForEditor(rawText) {
   // Strip consecutive duplicated phrases
   cleaned = cleaned.replace(/\b(.{10,120}?)\s+\1\b/gi, '$1');
 
-  // Strip leading emojis
+  // Strip leading emojis (only strip trailing separator punctuation if a leading emoji was actually removed)
   const emojiPrefix = /^(?:[\p{Extended_Pictographic}\uFE0E\uFE0F\u200D\u20E3]|\uD83C[\uDDE6-\uDDFF]|\uD83C[\uDFFB-\uDFFF])+/u;
   let loops = 0;
-  while (loops < 10) {
+  while (loops < 10 && emojiPrefix.test(cleaned)) {
     const prev = cleaned;
     cleaned = cleaned.replace(emojiPrefix, '').trim();
     cleaned = cleaned.replace(/^[:\-–—|,!.\s]+/, '').trim();
-    if (cleaned === prev || !emojiPrefix.test(cleaned)) break;
+    if (cleaned === prev) break;
     loops++;
   }
 
-  return cleaned.trim();
+  return cleaned.replace(/[ \t]{2,}/g, ' ').trim();
 }
 
 // Insert reply or post text into Twitter's Draft.js / Lexical editor cleanly (Async to allow React state sync)
@@ -366,15 +517,13 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
   showToast('✦ Generating reply with Gemini...', 'info');
 
   try {
-    const response = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({
-        type: 'GENERATE_REPLY',
-        payload: {
-          tweetText: context.text,
-          tweetAuthor: context.author,
-          tone: toneId
-        }
-      }, resolve);
+    const response = await sendRuntimeMessage({
+      type: 'GENERATE_REPLY',
+      payload: {
+        tweetText: context.text,
+        tweetAuthor: context.author,
+        tone: toneId
+      }
     });
 
     if (!response || !response.success) {
@@ -388,7 +537,7 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
       if (isAuthIssue) {
         showToast('Please log in to Gemini at gemini.google.com', 'error', {
           text: 'Open Gemini',
-          onClick: () => chrome.runtime.sendMessage({ type: 'OPEN_GEMINI' })
+          onClick: () => sendRuntimeMessage({ type: 'OPEN_GEMINI' }).catch(() => {})
         });
       } else if (isApiKeyIssue) {
         showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
@@ -423,15 +572,24 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
   }
 }
 
-// Determine whether a composer is for replying to a tweet or creating a new post
+// Determine whether a composer is for replying to a tweet, quoting a tweet, or creating a new post
 function detectComposerType(composerEl) {
   const modal = composerEl.closest('div[role="dialog"]');
   if (modal) {
-    const hasParentTweet = !!modal.querySelector(SELECTORS.tweetArticle);
-    return hasParentTweet ? 'reply' : 'new_post';
+    const tweetEls = queryAllFirst(modal, SELECTORS.tweetArticle);
+    if (tweetEls.length === 0) return 'new_post';
+
+    const editor = findAssociatedEditor(composerEl);
+    if (editor && typeof editor.compareDocumentPosition === 'function') {
+      const hasPrecedingArticle = tweetEls.some(t => (editor.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_PRECEDING) !== 0);
+      if (hasPrecedingArticle) return 'reply';
+      const hasFollowingArticle = tweetEls.some(t => (editor.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+      if (hasFollowingArticle) return 'quote';
+    }
+    return 'reply';
   }
 
-  if (composerEl.closest(SELECTORS.tweetArticle)) {
+  if (closestFirst(composerEl, SELECTORS.tweetArticle)) {
     return 'reply';
   }
 
@@ -439,16 +597,22 @@ function detectComposerType(composerEl) {
     return 'reply';
   }
 
+  // Bounded check (max 3 levels) for inline reply containers directly below a tweet article
   let current = composerEl;
-  while (current && current !== document.body) {
+  let depth = 0;
+  while (current && current !== document.body && depth < 3) {
     let prev = current.previousElementSibling;
     while (prev) {
-      if (prev.matches?.(SELECTORS.tweetArticle) || prev.querySelector?.(SELECTORS.tweetArticle)) {
+      const isArticle = splitSelectorGroup(SELECTORS.tweetArticle).some(sel => {
+        try { return prev.matches?.(sel); } catch (e) { return false; }
+      });
+      if (isArticle || queryFirst(prev, SELECTORS.tweetArticle)) {
         return 'reply';
       }
       prev = prev.previousElementSibling;
     }
     current = current.parentElement;
+    depth++;
   }
 
   return 'new_post';
@@ -463,6 +627,8 @@ function showPostPromptPopover(wrapper, composerToolbar, defaultStyle = 'engagin
     existingPopover.remove();
   }
 
+  const isQuote = wrapper.dataset.composerMode === 'quote';
+
   const popover = document.createElement('div');
   popover.className = 'gemini-post-popover';
 
@@ -471,7 +637,7 @@ function showPostPromptPopover(wrapper, composerToolbar, defaultStyle = 'engagin
   header.innerHTML = `
     <div class="gemini-popover-title">
       <span class="gemini-sparkle-icon">✦</span>
-      <span>Create AI Post</span>
+      <span>${isQuote ? 'Create AI Quote' : 'Create AI Post'}</span>
     </div>
   `;
 
@@ -502,7 +668,9 @@ function showPostPromptPopover(wrapper, composerToolbar, defaultStyle = 'engagin
 
   const textarea = document.createElement('textarea');
   textarea.className = 'gemini-popover-input';
-  textarea.placeholder = 'What should this post be about? (e.g. "3 lessons from building in public in 2026")';
+  textarea.placeholder = isQuote
+    ? 'What angle or take should this quote tweet have? (optional nuance)'
+    : 'What should this post be about? (e.g. "3 lessons from building in public in 2026")';
   textarea.rows = 2;
 
   const footer = document.createElement('div');
@@ -570,7 +738,7 @@ function showPostPromptPopover(wrapper, composerToolbar, defaultStyle = 'engagin
   setTimeout(() => textarea.focus(), 50);
 }
 
-// Handle generating a new post (either by polishing draft or using a topic)
+// Handle generating a new post or quote tweet (either by polishing draft, quoting, or using a topic)
 async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolbar, customTopic = null) {
   if (!containerEl || containerEl.dataset.busy === 'true' || containerEl.classList.contains('loading')) return;
   containerEl.dataset.busy = 'true';
@@ -582,35 +750,50 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
     return;
   }
 
-  const currentDraft = (editor.innerText || editor.textContent || '').trim();
   const wrapper = composerToolbar.querySelector('.gemini-reply-wrapper') || containerEl.closest('.gemini-reply-wrapper');
+  const isQuoteMode = wrapper?.dataset.composerMode === 'quote';
+  const currentDraft = (editor.innerText || editor.textContent || '').trim();
+  const quoteContext = isQuoteMode ? extractTweetContext(composerToolbar) : { text: '', author: '' };
 
-  if (!customTopic && !currentDraft) {
+  if (!isQuoteMode && !customTopic && !currentDraft) {
     delete containerEl.dataset.busy;
     showPostPromptPopover(wrapper, composerToolbar, styleId);
     showToast('Enter a topic or idea in the prompt bar to generate your post.', 'info');
     return;
   }
 
-  const topicOrDraft = customTopic || currentDraft;
+  if (isQuoteMode && !quoteContext.text && !customTopic && !currentDraft) {
+    delete containerEl.dataset.busy;
+    showPostPromptPopover(wrapper, composerToolbar, styleId);
+    showToast('Could not read quoted tweet. Enter your angle or topic to generate.', 'info');
+    return;
+  }
+
+  const topicOrDraft = customTopic || currentDraft || quoteContext.text;
   const isDraft = !customTopic && !!currentDraft;
 
   const originalHtml = actionBtnEl.innerHTML;
   containerEl.classList.add('loading');
   actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ Gemini...</span>`;
 
-  showToast(isDraft ? '✦ Polishing tweet draft with Gemini...' : '✦ Generating post with Gemini...', 'info');
+  showToast(
+    isQuoteMode
+      ? '✦ Generating quote tweet with Gemini...'
+      : (isDraft ? '✦ Polishing tweet draft with Gemini...' : '✦ Generating post with Gemini...'),
+    'info'
+  );
 
   try {
-    const response = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({
-        type: 'GENERATE_POST',
-        payload: {
-          topicOrDraft: topicOrDraft,
-          isDraft: isDraft,
-          style: styleId
-        }
-      }, resolve);
+    const response = await sendRuntimeMessage({
+      type: 'GENERATE_POST',
+      payload: {
+        topicOrDraft: topicOrDraft,
+        isDraft: isDraft,
+        isQuote: isQuoteMode,
+        quotedText: quoteContext.text || '',
+        quotedAuthor: quoteContext.author || '',
+        style: styleId
+      }
     });
 
     if (!response || !response.success) {
@@ -624,7 +807,7 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
       if (isAuthIssue) {
         showToast('Please log in to Gemini at gemini.google.com', 'error', {
           text: 'Open Gemini',
-          onClick: () => chrome.runtime.sendMessage({ type: 'OPEN_GEMINI' })
+          onClick: () => sendRuntimeMessage({ type: 'OPEN_GEMINI' }).catch(() => {})
         });
       } else if (isApiKeyIssue) {
         showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
@@ -638,7 +821,12 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
     const inserted = await insertTextIntoEditor(editor, postText);
 
     if (inserted) {
-      showToast(isDraft ? '✦ Tweet polished and updated!' : '✦ New post generated and inserted!', 'success');
+      showToast(
+        isQuoteMode
+          ? '✦ Quote tweet generated and inserted!'
+          : (isDraft ? '✦ Tweet polished and updated!' : '✦ New post generated and inserted!'),
+        'success'
+      );
     } else {
       showToast('Could not auto-fill tweet box. Text copied to clipboard!', 'info');
       try {
@@ -657,13 +845,16 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
   }
 }
 
-// Create the Gemini Auto Reply / Post split-button element
+// Create the Gemini Auto Reply / Post / Quote split-button element
 function createGeminiReplyElement(composerToolbar) {
   const composerType = detectComposerType(composerToolbar);
   const isPost = composerType === 'new_post';
+  const isQuote = composerType === 'quote';
+  const isPostLike = isPost || isQuote;
 
   const wrapper = document.createElement('div');
-  wrapper.className = `gemini-reply-wrapper ${isPost ? 'mode-post' : 'mode-reply'}`;
+  const modeClass = isQuote ? 'mode-quote' : (isPost ? 'mode-post' : 'mode-reply');
+  wrapper.className = `gemini-reply-wrapper ${modeClass}`;
   wrapper.dataset.composerMode = composerType;
 
   const splitBtn = document.createElement('div');
@@ -672,12 +863,14 @@ function createGeminiReplyElement(composerToolbar) {
   const btnMain = document.createElement('button');
   btnMain.type = 'button';
   btnMain.className = 'gemini-reply-action';
-  btnMain.title = isPost
-    ? 'AI Post (Click to polish draft or enter topic)'
-    : 'AI Auto Reply (Click to generate with default tone)';
+  btnMain.title = isQuote
+    ? 'AI Quote (Click to generate a quote tweet)'
+    : (isPost
+      ? 'AI Post (Click to polish draft or enter topic)'
+      : 'AI Auto Reply (Click to generate with default tone)');
   btnMain.innerHTML = `
     <span class="gemini-sparkle-icon">✦</span>
-    <span>${isPost ? 'AI Post' : 'AI Reply'}</span>
+    <span>${isQuote ? 'AI Quote' : (isPost ? 'AI Post' : 'AI Reply')}</span>
   `;
 
   const divider = document.createElement('div');
@@ -686,7 +879,7 @@ function createGeminiReplyElement(composerToolbar) {
   const btnArrow = document.createElement('button');
   btnArrow.type = 'button';
   btnArrow.className = 'gemini-reply-arrow';
-  btnArrow.title = isPost ? 'Choose post style or enter topic' : 'Choose reply tone';
+  btnArrow.title = isQuote ? 'Choose quote style or enter angle' : (isPost ? 'Choose post style or enter topic' : 'Choose reply tone');
   btnArrow.innerHTML = `<span class="gemini-arrow-icon">▾</span>`;
 
   splitBtn.appendChild(btnMain);
@@ -699,17 +892,17 @@ function createGeminiReplyElement(composerToolbar) {
 
   const menuHeader = document.createElement('div');
   menuHeader.className = 'gemini-tone-header';
-  menuHeader.textContent = isPost ? 'Post Style' : 'Reply Tone';
+  menuHeader.textContent = isQuote ? 'Quote Style' : (isPost ? 'Post Style' : 'Reply Tone');
   menu.appendChild(menuHeader);
 
   const arrowSpan = btnArrow.querySelector('.gemini-arrow-icon');
 
-  if (isPost) {
+  if (isPostLike) {
     const promptItem = document.createElement('div');
     promptItem.className = 'gemini-tone-item gemini-tone-item-prompt';
     promptItem.innerHTML = `
       <span class="gemini-tone-icon">💡</span>
-      <span style="font-weight: 600;">Enter Topic / Idea...</span>
+      <span style="font-weight: 600;">${isQuote ? 'Enter Quote Angle...' : 'Enter Topic / Idea...'}</span>
     `;
     promptItem.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -762,34 +955,39 @@ function createGeminiReplyElement(composerToolbar) {
     });
   }
 
+  let resolvingSettings = false;
   btnMain.addEventListener('click', async (e) => {
     e.stopPropagation();
-    if (splitBtn.dataset.busy === 'true' || splitBtn.classList.contains('loading')) return;
-    splitBtn.dataset.busy = 'true';
+    if (resolvingSettings || splitBtn.dataset.busy === 'true' || splitBtn.classList.contains('loading')) return;
+    resolvingSettings = true;
 
     menu.style.display = 'none';
     arrowSpan.classList.remove('open');
 
-    if (isPost) {
-      let preferredStyle = 'engaging';
-      try {
-        const settings = await chrome.storage.local.get(['defaultPostStyle']);
-        if (settings && settings.defaultPostStyle) {
-          preferredStyle = settings.defaultPostStyle;
-        }
-      } catch (err) {}
-      delete splitBtn.dataset.busy;
-      triggerAutoPost(splitBtn, btnMain, preferredStyle, composerToolbar);
-    } else {
-      let preferredTone = 'quick';
-      try {
-        const settings = await chrome.storage.local.get(['defaultTone']);
-        if (settings && settings.defaultTone) {
-          preferredTone = settings.defaultTone;
-        }
-      } catch (err) {}
-      delete splitBtn.dataset.busy;
-      triggerAutoReply(splitBtn, btnMain, preferredTone, composerToolbar);
+    try {
+      if (isPostLike) {
+        let preferredStyle = 'engaging';
+        try {
+          const settings = await chrome.storage.local.get(['defaultPostStyle']);
+          if (settings && settings.defaultPostStyle) {
+            preferredStyle = settings.defaultPostStyle;
+          }
+        } catch (err) {}
+        resolvingSettings = false;
+        triggerAutoPost(splitBtn, btnMain, preferredStyle, composerToolbar);
+      } else {
+        let preferredTone = 'quick';
+        try {
+          const settings = await chrome.storage.local.get(['defaultTone']);
+          if (settings && settings.defaultTone) {
+            preferredTone = settings.defaultTone;
+          }
+        } catch (err) {}
+        resolvingSettings = false;
+        triggerAutoReply(splitBtn, btnMain, preferredTone, composerToolbar);
+      }
+    } finally {
+      resolvingSettings = false;
     }
   });
 
@@ -836,21 +1034,41 @@ function createGeminiReplyElement(composerToolbar) {
   return wrapper;
 }
 
+// Find a flex toolbar row for a submit button when no semantic toolbar was matched
+function findToolbarContainerForSubmit(btn) {
+  let curr = btn?.parentElement;
+  let depth = 0;
+  while (curr && curr !== document.body && depth < 5) {
+    const cls = typeof curr.className === 'string' ? curr.className : '';
+    const isToolbarLike = curr.getAttribute('role') === 'toolbar' ||
+      curr.dataset?.testid === 'toolBar' ||
+      /(?:^|\s)flex(?:\s|$)|toolbar/i.test(cls);
+    if (isToolbarLike && curr.children.length >= 2) {
+      return curr;
+    }
+    curr = curr.parentElement;
+    depth++;
+  }
+  return btn?.parentElement || null;
+}
+
 // Check and inject button into Twitter composers (and update if composer context changed)
 function injectGeminiButtons() {
-  // Query standard toolbars or parent containers containing submit buttons
-  let toolbars = Array.from(document.querySelectorAll(SELECTORS.toolbar));
+  // Query standard toolbars in priority order
+  const toolbars = queryAllFirst(document, SELECTORS.toolbar);
 
-  // Fallback: If no standard toolbar found, find submit buttons directly and use their parent row
-  if (toolbars.length === 0) {
-    const submitButtons = document.querySelectorAll(SELECTORS.tweetButton);
-    submitButtons.forEach(btn => {
-      const parentRow = btn.closest('div.flex, div[class*="flex"], div');
+  // Per-button fallback: ensure any unmatched submit button (e.g. reply modal when home toolbar exists) also gets a toolbar row
+  const submitButtons = queryAllFirst(document, SELECTORS.tweetButton);
+  submitButtons.forEach(btn => {
+    if (btn.closest('#gemini-floating-hud')) return;
+    const alreadyCovered = toolbars.some(tb => tb.contains(btn));
+    if (!alreadyCovered) {
+      const parentRow = findToolbarContainerForSubmit(btn);
       if (parentRow && !toolbars.includes(parentRow) && !parentRow.closest('#gemini-floating-hud')) {
         toolbars.push(parentRow);
       }
-    });
-  }
+    }
+  });
 
   toolbars.forEach(toolbar => {
     if (toolbar.closest('#gemini-floating-hud')) return;
@@ -868,7 +1086,7 @@ function injectGeminiButtons() {
 
     toolbar.setAttribute('data-gemini-injected', 'true');
 
-    const tweetButton = toolbar.querySelector(SELECTORS.tweetButton) ||
+    const tweetButton = queryFirst(toolbar, SELECTORS.tweetButton) ||
       Array.from(toolbar.querySelectorAll('button')).find(b => /(?:post|reply)/i.test(b.innerText || ''));
 
     const geminiElement = createGeminiReplyElement(toolbar);
@@ -892,11 +1110,12 @@ function injectGeminiButtons() {
   });
 }
 
-// Continuous observer for dynamically loaded Twitter composers
+// Continuous observer for dynamically loaded Twitter composers & theme updates
 let debounceTimer = null;
 const observer = new MutationObserver(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
+    syncPageThemeClass();
     injectGeminiButtons();
     if (floatingHudEl && document.body && !document.body.contains(floatingHudEl)) {
       document.body.appendChild(floatingHudEl);
@@ -905,12 +1124,14 @@ const observer = new MutationObserver(() => {
 });
 
 if (document.body) {
+  syncPageThemeClass();
   observer.observe(document.body, {
     childList: true,
     subtree: true
   });
 } else {
   document.addEventListener('DOMContentLoaded', () => {
+    syncPageThemeClass();
     observer.observe(document.body, {
       childList: true,
       subtree: true
@@ -1054,8 +1275,12 @@ function makeDraggable(handleEl, hudEl, onClickWhenNotDragged = null) {
 
       if (isDragging) {
         const rect = hudEl.getBoundingClientRect();
+        const posPayload = { left: rect.left, top: rect.top };
         try {
-          localStorage.setItem('gemini_hud_pos', JSON.stringify({ left: rect.left, top: rect.top }));
+          localStorage.setItem('gemini_hud_pos', JSON.stringify(posPayload));
+        } catch (err) {}
+        try {
+          chrome.storage?.local?.set({ hudPosition: posPayload });
         } catch (err) {}
       } else if (onClickWhenNotDragged) {
         onClickWhenNotDragged(ue);
@@ -1075,20 +1300,29 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   hud.id = 'gemini-floating-hud';
   hud.className = 'gemini-hud-collapsed';
 
+  const applyHudPos = (pos) => {
+    if (pos && typeof pos.left === 'number' && typeof pos.top === 'number' && !isNaN(pos.left) && !isNaN(pos.top)) {
+      const safeLeft = Math.max(16, Math.min(window.innerWidth - 160, pos.left));
+      const safeTop = Math.max(16, Math.min(window.innerHeight - 80, pos.top));
+      hud.style.left = `${safeLeft}px`;
+      hud.style.top = `${safeTop}px`;
+      hud.style.bottom = 'auto';
+      hud.style.right = 'auto';
+    }
+  };
+
   try {
     const savedPos = localStorage.getItem('gemini_hud_pos');
     if (savedPos) {
-      const pos = JSON.parse(savedPos);
-      if (typeof pos.left === 'number' && typeof pos.top === 'number' && !isNaN(pos.left) && !isNaN(pos.top)) {
-        const safeLeft = Math.max(16, Math.min(window.innerWidth - 160, pos.left));
-        const safeTop = Math.max(16, Math.min(window.innerHeight - 80, pos.top));
-        hud.style.left = `${safeLeft}px`;
-        hud.style.top = `${safeTop}px`;
-        hud.style.bottom = 'auto';
-        hud.style.right = 'auto';
-      }
+      applyHudPos(JSON.parse(savedPos));
     }
   } catch (err) {}
+
+  chrome.storage?.local?.get(['hudPosition']).then(res => {
+    if (res?.hudPosition) {
+      applyHudPos(res.hudPosition);
+    }
+  }).catch(() => {});
 
   const pill = document.createElement('div');
   pill.className = 'gemini-hud-pill';
@@ -1388,9 +1622,7 @@ async function updateEngineStatusBadge(hudEl) {
   if (statusText) statusText.textContent = 'Checking AI engine...';
 
   try {
-    const resp = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ type: 'CHECK_ENGINE_STATUS' }, resolve);
-    });
+    const resp = await sendRuntimeMessage({ type: 'CHECK_ENGINE_STATUS' });
 
     const connected = !!(resp && resp.connected);
     const isWarning = resp?.statusText === 'Download Needed' || resp?.statusText === 'Downloading';
@@ -1437,15 +1669,13 @@ async function handleHudDraft(hudEl) {
   try {
     showToast('✦ Generating tweet with Gemini...', 'info');
 
-    const response = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({
-        type: 'GENERATE_POST',
-        payload: {
-          topicOrDraft: topic,
-          isDraft: false,
-          style: chosenStyle
-        }
-      }, resolve);
+    const response = await sendRuntimeMessage({
+      type: 'GENERATE_POST',
+      payload: {
+        topicOrDraft: topic,
+        isDraft: false,
+        style: chosenStyle
+      }
     });
 
     if (!response || !response.success) {
@@ -1459,7 +1689,7 @@ async function handleHudDraft(hudEl) {
       if (isAuthIssue) {
         showToast('Please log in to Gemini at gemini.google.com', 'error', {
           text: 'Open Gemini',
-          onClick: () => chrome.runtime.sendMessage({ type: 'OPEN_GEMINI' })
+          onClick: () => sendRuntimeMessage({ type: 'OPEN_GEMINI' }).catch(() => {})
         });
       } else if (isApiKeyIssue) {
         showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
@@ -1473,17 +1703,17 @@ async function handleHudDraft(hudEl) {
     const engineLabel = response?.engine ? ` via ${response.engine}` : '';
     const postContent = response.post;
 
-    let editor = document.querySelector(`div[role="dialog"] ${SELECTORS.editor}`)
-      || document.querySelector(SELECTORS.editor);
+    const modalEl = document.querySelector('div[role="dialog"]');
+    let editor = (modalEl ? queryFirst(modalEl, SELECTORS.editor) : null) || queryFirst(document, SELECTORS.editor);
 
     if (!editor) {
-      const composeBtn = document.querySelector(SELECTORS.composeNavBtn);
+      const composeBtn = queryFirst(document, SELECTORS.composeNavBtn);
       if (composeBtn) {
         composeBtn.click();
         for (let i = 0; i < 15; i++) {
           await new Promise(r => setTimeout(r, 100));
-          editor = document.querySelector(`div[role="dialog"] ${SELECTORS.editor}`)
-            || document.querySelector(SELECTORS.editor);
+          const dlg = document.querySelector('div[role="dialog"]');
+          editor = (dlg ? queryFirst(dlg, SELECTORS.editor) : null) || queryFirst(document, SELECTORS.editor);
           if (editor) break;
         }
       }

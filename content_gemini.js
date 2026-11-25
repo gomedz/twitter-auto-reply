@@ -36,14 +36,14 @@ const STOP_BUTTON_SELECTORS = [
   '[data-test-id="stop-button"]'
 ];
 
-// Selectors for response containers
+// Selectors for response containers (scoped to avoid matching unrelated markdown nodes)
 const RESPONSE_SELECTORS = [
   'message-content .model-response-text',
   'message-content',
   '.model-response-text',
   '.response-content',
   'model-response',
-  'div.markdown',
+  'model-response div.markdown',
   '.presented-response'
 ];
 
@@ -123,12 +123,13 @@ function checkLoginStatus() {
   const userAvatar = document.querySelector('a[aria-label*="Google Account" i], img[alt*="Google Account" i], .gb_d[aria-expanded]');
 
   // Must have chat UI AND must NOT have an explicit sign-in prompt
-  const hasChatUI = !!(inputEl || richTextarea || chatWindow || newChatBtn);
-  const isLoggedIn = (hasChatUI && !explicitSignIn) || !!userAvatar;
+  const hasInput = !!(inputEl || richTextarea);
+  const hasChatUI = !!(hasInput || chatWindow || newChatBtn);
+  const isLoggedIn = !explicitSignIn && (hasChatUI || (!!userAvatar && hasInput));
 
   return {
     loggedIn: isLoggedIn,
-    hasInput: !!inputEl || !!richTextarea,
+    hasInput: hasInput,
     hasChatUI: hasChatUI,
     hasExplicitSignIn: !!explicitSignIn,
     url: url,
@@ -233,6 +234,26 @@ async function clickSend() {
   throw new Error('Could not find or click the Send button in Gemini.');
 }
 
+// Start a fresh chat if an existing conversation has messages so prior context does not bleed into replies
+async function ensureFreshChatIfNeeded() {
+  const existingResponses = findElements(RESPONSE_SELECTORS);
+  if (existingResponses.length === 0) return;
+
+  const newChatBtn = document.querySelector(
+    'button[aria-label*="New chat" i], a[aria-label*="New chat" i], [data-test-id*="new-chat"]'
+  );
+  if (newChatBtn && !newChatBtn.disabled && newChatBtn.getAttribute('aria-disabled') !== 'true') {
+    newChatBtn.click();
+    const start = Date.now();
+    while (Date.now() - start < 3000) {
+      if (findElements(RESPONSE_SELECTORS).length === 0 && findInputElement()) {
+        break;
+      }
+      await new Promise(r => setTimeout(r, 150));
+    }
+  }
+}
+
 // Wait for the NEW response node to mount and finish streaming
 async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
   const startTime = Date.now();
@@ -259,6 +280,16 @@ async function waitForGeminiResponse(initialResponseCount, timeoutMs = 45000) {
 
       if (stopBtn) {
         sawStopBtn = true;
+      }
+
+      // Fail fast if Gemini rendered an explicit error state with no new response
+      if (!stopBtn && currentCount <= initialResponseCount && Date.now() - startTime > 3000) {
+        const errorBanner = document.querySelector('response-error, .error-message, [data-test-id="error-message"]');
+        const errText = errorBanner ? (errorBanner.innerText || errorBanner.textContent || '').trim() : '';
+        if (errText && /something went wrong|try again|limit|error|unavailable/i.test(errText)) {
+          clearInterval(checkInterval);
+          return reject(new Error(`Gemini Web error: ${errText.substring(0, 140)}`));
+        }
       }
 
       // Strictly require a new response container beyond initialResponseCount
@@ -293,6 +324,8 @@ async function handleExecutePrompt(prompt) {
       message: 'You are not logged into Google Gemini. Please open gemini.google.com/app and log in with your Google account.'
     };
   }
+
+  await ensureFreshChatIfNeeded();
 
   const initialResponses = findElements(RESPONSE_SELECTORS);
   const initialCount = initialResponses.length;

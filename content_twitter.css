@@ -167,25 +167,23 @@
   background: rgba(255, 255, 255, 0.45);
 }
 
-/* Light mode support */
-@media (prefers-color-scheme: light) {
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-menu {
-    background: rgba(255, 255, 255, 0.98);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-header {
-    background: rgba(255, 255, 255, 0.98);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-menu::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.25);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-item {
-    color: #0f1419;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-item:hover {
-    background: rgba(0, 0, 0, 0.05);
-  }
+/* Light mode support (driven by actual computed page luminance via .gemini-x-light) */
+:root.gemini-x-light .gemini-tone-menu {
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+:root.gemini-x-light .gemini-tone-header {
+  background: rgba(255, 255, 255, 0.98);
+}
+:root.gemini-x-light .gemini-tone-menu::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25);
+}
+:root.gemini-x-light .gemini-tone-item {
+  color: #0f1419;
+}
+:root.gemini-x-light .gemini-tone-item:hover {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 @keyframes gemini-fade-in {
@@ -458,32 +456,30 @@
 }
 
 /* Light Theme overrides for Popover */
-@media (prefers-color-scheme: light) {
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-post-popover {
-    background: rgba(255, 255, 255, 0.98);
-    border-color: rgba(29, 155, 240, 0.3);
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-popover-title {
-    color: #0f1419;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-popover-input {
-    background: #f7f9f9;
-    color: #0f1419;
-    border-color: #cfd9de;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-popover-select {
-    background: #f7f9f9;
-    color: #0f1419;
-    border-color: #cfd9de;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-popover-select option {
-    background: #ffffff;
-    color: #0f1419;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-tone-divider {
-    background: rgba(0, 0, 0, 0.08);
-  }
+:root.gemini-x-light .gemini-post-popover {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(29, 155, 240, 0.3);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+}
+:root.gemini-x-light .gemini-popover-title {
+  color: #0f1419;
+}
+:root.gemini-x-light .gemini-popover-input {
+  background: #f7f9f9;
+  color: #0f1419;
+  border-color: #cfd9de;
+}
+:root.gemini-x-light .gemini-popover-select {
+  background: #f7f9f9;
+  color: #0f1419;
+  border-color: #cfd9de;
+}
+:root.gemini-x-light .gemini-popover-select option {
+  background: #ffffff;
+  color: #0f1419;
+}
+:root.gemini-x-light .gemini-tone-divider {
+  background: rgba(0, 0, 0, 0.08);
 }
 
 /* ========================================================
@@ -977,57 +973,69 @@
 }
 
 /* Light Theme Overrides for HUD */
-@media (prefers-color-scheme: light) {
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-pill {
-    background: rgba(255, 255, 255, 0.96);
-    border-color: rgba(0, 0, 0, 0.1);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-pill-text {
-    color: #0f1419;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-card {
-    background: rgba(255, 255, 255, 0.98);
-    border-color: rgba(0, 0, 0, 0.1);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-header {
-    background: rgba(0, 0, 0, 0.03);
-    border-bottom-color: rgba(0, 0, 0, 0.06);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-title {
-    color: #0f1419;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-status-bar {
-    background: rgba(0, 0, 0, 0.04);
-    color: #536471;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-select {
-    background: #f7f9f9;
-    color: #0f1419;
-    border-color: #cfd9de;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-select option {
-    background: #ffffff;
-    color: #0f1419;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-instructions {
-    background: rgba(0, 0, 0, 0.02);
-    border-color: rgba(0, 0, 0, 0.06);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-instructions-textarea {
-    background: #f7f9f9;
-    color: #0f1419;
-    border-color: #cfd9de;
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-drafter {
-    background: rgba(0, 0, 0, 0.02);
-    border-color: rgba(0, 0, 0, 0.06);
-  }
-  body:not([style*="background-color: rgb(0, 0, 0)"]):not([style*="background-color: rgb(21, 32, 43)"]) .gemini-hud-textarea {
-    background: #f7f9f9;
-    color: #0f1419;
-    border-color: #cfd9de;
-  }
+:root.gemini-x-light .gemini-hud-pill {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+}
+:root.gemini-x-light .gemini-hud-pill-text {
+  color: #0f1419;
+}
+:root.gemini-x-light .gemini-hud-pill-expand-btn {
+  color: #536471 !important;
+}
+:root.gemini-x-light .gemini-hud-card {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15);
+}
+:root.gemini-x-light .gemini-hud-header {
+  background: rgba(0, 0, 0, 0.03);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+:root.gemini-x-light .gemini-hud-title {
+  color: #0f1419;
+}
+:root.gemini-x-light .gemini-hud-status-bar {
+  background: rgba(0, 0, 0, 0.04);
+  color: #536471;
+}
+:root.gemini-x-light .gemini-hud-engine-row {
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+:root.gemini-x-light .gemini-hud-engine-chip {
+  color: #536471 !important;
+  border-color: rgba(0, 0, 0, 0.14) !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+:root.gemini-x-light .gemini-hud-engine-chip.active {
+  color: #ffffff !important;
+}
+:root.gemini-x-light .gemini-hud-select {
+  background: #f7f9f9;
+  color: #0f1419;
+  border-color: #cfd9de;
+}
+:root.gemini-x-light .gemini-hud-select option {
+  background: #ffffff;
+  color: #0f1419;
+}
+:root.gemini-x-light .gemini-hud-instructions {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+:root.gemini-x-light .gemini-hud-instructions-textarea {
+  background: #f7f9f9;
+  color: #0f1419;
+  border-color: #cfd9de;
+}
+:root.gemini-x-light .gemini-hud-drafter {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+:root.gemini-x-light .gemini-hud-textarea {
+  background: #f7f9f9;
+  color: #0f1419;
+  border-color: #cfd9de;
 }
 

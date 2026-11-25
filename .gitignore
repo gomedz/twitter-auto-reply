@@ -21,3 +21,16 @@ dist/
 *.crx
 *.zip
 website/
+
+# Non-extension / internal dev, agent, store & release files
+AGENTS.md
+IMPLEMENTATION_PLAN.md
+chromewebstore.md
+docs/
+scripts/
+release/
+generate_icons.py
+extension_popup_default.png
+extension_popup_donate.png
+floating_hud.png
+promo_small_440x280.png

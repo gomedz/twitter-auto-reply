@@ -105,6 +105,12 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
       savedModel = 'gemini-3.5-flash-lite';
       await chrome.storage.local.set({ cloudModel: savedModel });
     }
+    if (!Array.from(cloudModelSelect.options).some(o => o.value === savedModel)) {
+      const opt = document.createElement('option');
+      opt.value = savedModel;
+      opt.textContent = `${savedModel} (Active)`;
+      cloudModelSelect.appendChild(opt);
+    }
     cloudModelSelect.value = savedModel;
   }
 
@@ -184,7 +190,7 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
   customInstructionsEl.addEventListener('input', () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
-      await chrome.storage.local.set({ customInstructions: customInstructionsEl.value });
+      await chrome.storage.local.set({ customInstructions: customInstructionsEl.value.trim() });
       flashSaved();
     }, 400);
   });
@@ -568,7 +574,7 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
   if (btnCheckNano) {
     btnCheckNano.addEventListener('click', () => {
       chrome.tabs.create({
-        url: 'https://github.com/gomedz/twitter-auto-reply'
+        url: 'https://github.com/gomedz/twitter-auto-reply#how-to-check-if-gemini-nano-is-supported-in-your-chrome'
       });
     });
   }
@@ -658,10 +664,23 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
       customInstructionsEl.value = changes.customInstructions.newValue || '';
     }
     if (changes.cloudModel && cloudModelSelect) {
-      cloudModelSelect.value = changes.cloudModel.newValue;
+      const nextModel = changes.cloudModel.newValue;
+      if (nextModel && !Array.from(cloudModelSelect.options).some(o => o.value === nextModel)) {
+        const opt = document.createElement('option');
+        opt.value = nextModel;
+        opt.textContent = `${nextModel} (Active)`;
+        cloudModelSelect.appendChild(opt);
+      }
+      cloudModelSelect.value = nextModel;
     }
     if (changes.apiKey && cloudApiKeyInput && document.activeElement !== cloudApiKeyInput) {
       cloudApiKeyInput.value = changes.apiKey.newValue || '';
+    }
+    if (changes.showFloatingHud && floatingHudToggle) {
+      floatingHudToggle.checked = changes.showFloatingHud.newValue !== false;
+    }
+    if (changes.autoCloseTab && autoCloseToggle) {
+      autoCloseToggle.checked = changes.autoCloseTab.newValue !== false;
     }
   });
 
