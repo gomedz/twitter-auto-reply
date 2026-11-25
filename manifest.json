@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Twitter (𝕏) AI Assistant: Auto Reply & Post Creator",
-  "version": "1.5.0",
-  "description": "Generate intelligent auto-replies and craft viral tweets on Twitter (X) using Gemini Nano, Cloud API, or your Gemini session.",
+  "version": "2.0.0",
+  "description": "Generate intelligent auto-replies and craft viral tweets on Twitter (X) using Gemini Nano, Cloud API, Custom API, or Gemini Web.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -31,6 +31,12 @@
     "https://x.com/*",
     "https://gemini.google.com/*",
     "https://generativelanguage.googleapis.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "http://*/*"
   ],
   "content_scripts": [
     {

@@ -1,24 +1,38 @@
 // background.js - Multi-Engine Service Worker for Twitter AI Auto Reply
 // Supports:
 // 1. 'nano': Chrome Built-in Gemini Nano (0 tabs, local GPU, Prompt API)
-// 2. 'cloud_api': Google Gemini Cloud REST API (0 tabs, free API key, 3.5-flash-lite / 3.6-flash / 3.8-flash / 2.5-flash)
-// 3. 'headless': Direct Web Request with Google Cookies (0 tabs, background fetch)
-// 4. 'web_tab': Gemini Web Tab DOM Automation (with optional auto-close)
+// 2. 'cloud_api': Google Gemini Cloud REST API (0 tabs, free API key, gemini-3.5-flash-lite / gemini-4-hydrogen / argon / neon / carbon)
+// 3. 'custom_api': User-configured OpenAI-compatible or Anthropic-compatible API (Cloud or Localhost)
+// 4. 'headless': Direct Web Request with Google Cookies (0 tabs, background fetch)
+// 5. 'web_tab': Gemini Web Tab DOM Automation (with optional auto-close)
 
 const GEMINI_URL = 'https://gemini.google.com/app';
+const LEGACY_DEFAULT_CUSTOM_INSTRUCTIONS = 'Keep output concise, under 260 characters. No hashtags. No quotation marks. Be natural, authentic, and human.';
+
+const DEFAULT_CUSTOM_API = {
+  preset: 'openai',
+  format: 'openai', // 'openai' | 'anthropic'
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: '',
+  model: 'gpt-4o-mini',
+  customHeaders: ''
+};
 
 // Default settings
 const DEFAULT_SETTINGS = {
-  engine: 'cloud_api', // 'cloud_api' | 'nano' | 'headless' | 'web_tab'
+  engine: 'cloud_api', // 'cloud_api' | 'custom_api' | 'nano' | 'headless' | 'web_tab'
   defaultTone: 'quick',
   defaultPostStyle: 'engaging',
-  customInstructions: 'Keep output concise, under 260 characters. No hashtags. No quotation marks. Be natural, authentic, and human.',
+  customInstructions: 'Keep output concise. No hashtags. No quotation marks. Be natural, authentic, and human.',
+  maxReplyLength: 280,
+  maxPostLength: 280,
   autoOpenGemini: true,
   autoCloseTab: true,
   showFloatingHud: true,
   apiKey: '',
   cloudModel: 'gemini-3.5-flash-lite',
-  cloudApiVersion: 'v1beta'
+  cloudApiVersion: 'v1beta',
+  customApi: { ...DEFAULT_CUSTOM_API }
 };
 
 // Initialize settings & declarative rules on install / startup
@@ -27,12 +41,31 @@ async function setupExtension() {
   const toSet = {};
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
     if (existing[k] === undefined) {
-      toSet[k] = v;
+      toSet[k] = k === 'customApi' ? { ...DEFAULT_CUSTOM_API } : v;
     }
   }
-  // Auto-migrate retired models (1.5, 2.0, 2.5-flash-lite) to gemini-3.5-flash-lite
-  if (existing.cloudModel && /gemma|1\.5|2\.0|2\.5-flash-lite/i.test(existing.cloudModel)) {
-    toSet.cloudModel = 'gemini-3.5-flash-lite';
+  if (existing.customApi && typeof existing.customApi === 'object') {
+    toSet.customApi = { ...DEFAULT_CUSTOM_API, ...existing.customApi };
+  }
+  // Migrate legacy default customInstructions that hardcoded "under 260 characters."
+  if (existing.customInstructions === LEGACY_DEFAULT_CUSTOM_INSTRUCTIONS) {
+    toSet.customInstructions = DEFAULT_SETTINGS.customInstructions;
+  }
+  // Preserve any explicit inline length from customInstructions during first-time v2.0.0 migration
+  if (existing.maxReplyLength === undefined) {
+    const inlineLimit = extractCustomCharLimit(existing.customInstructions, null);
+    toSet.maxReplyLength = (inlineLimit && inlineLimit !== 260) ? inlineLimit : 280;
+  }
+  if (existing.maxPostLength === undefined) {
+    const inlineLimit = extractCustomCharLimit(existing.customInstructions, null);
+    toSet.maxPostLength = (inlineLimit && inlineLimit !== 260) ? inlineLimit : 280;
+  }
+  // Auto-migrate deprecated / legacy models (1.5, 2.0, 2.5, 3.5-flash, 3.6-flash, 3.7-flash)
+  if (existing.cloudModel) {
+    const migrated = normalizeCloudModel(existing.cloudModel);
+    if (migrated !== existing.cloudModel) {
+      toSet.cloudModel = migrated;
+    }
   }
   if (Object.keys(toSet).length > 0) {
     await chrome.storage.local.set(toSet);
@@ -122,14 +155,15 @@ async function checkNanoStatus() {
   }
 }
 
-async function generateViaNano(promptText, customInstructions = '', mode = 'reply') {
-  const charLimit = extractCustomCharLimit(customInstructions, 260);
+async function generateViaNano(promptText, customInstructions = '', mode = 'reply', maxLength = null) {
+  const effectiveLimit = resolveEffectiveMaxLength(maxLength, customInstructions, 260);
+  const promptRules = stripConflictingLengthClause(customInstructions, maxLength !== null && maxLength !== undefined);
   let systemContent = mode === 'post'
-    ? `You are an elite Twitter (X) creator. Output ONLY the single final tweet text to post. Keep standalone tweets concise, under ${charLimit} characters, punchy, no hashtags, no quotes. Never start or begin the tweet with emojis. Plain text only without HTML/XML tags.`
-    : `You are an authentic Twitter (X) assistant. Output ONLY the single final reply to post. Keep tweets and replies concise, under ${charLimit} characters, natural, no hashtags, no quotes. Never start or begin the reply with emojis. Plain text only without HTML/XML tags.`;
+    ? `You are an elite Twitter (X) creator. Output ONLY the single final tweet text to post. Keep output concise, strictly under ${effectiveLimit} characters, punchy, no hashtags, no quotes. Never start or begin the tweet with emojis. Plain text only without HTML/XML tags.`
+    : `You are an authentic Twitter (X) assistant. Output ONLY the single final reply to post. Keep output concise, strictly under ${effectiveLimit} characters, natural, no hashtags, no quotes. Never start or begin the reply with emojis. Plain text only without HTML/XML tags.`;
 
-  if (customInstructions) {
-    systemContent += ` ABSOLUTE MANDATORY RULES (override everything else, no exceptions): ${customInstructions}`;
+  if (promptRules) {
+    systemContent += ` ABSOLUTE MANDATORY RULES (override everything else, no exceptions): ${promptRules}`;
   }
   if (hasNoEmojiInstruction(customInstructions)) {
     systemContent += ' Absolutely NO emojis or emoticons under any circumstances. Plain text only.';
@@ -161,16 +195,51 @@ async function generateViaNano(promptText, customInstructions = '', mode = 'repl
 // ==========================================
 // ENGINE: GOOGLE GEMINI CLOUD REST API
 // ==========================================
+function normalizeCloudModel(modelName) {
+  const raw = String(modelName || '').trim();
+  if (!raw) return 'gemini-3.5-flash-lite';
+  if (/2\.5-pro/i.test(raw)) return 'gemini-4-argon';
+  if (/3\.5-flash(?!-lite)|3\.6-flash|3\.7-flash/i.test(raw)) return 'gemini-4-hydrogen';
+  if (/gemma|1\.5|2\.0|2\.5-flash/i.test(raw)) return 'gemini-3.5-flash-lite';
+  return raw;
+}
+
 function buildThinkingConfigForModel(modelName) {
-  // Gemini 2.5 Flash supports thinkingBudget: 0
+  if (/gemini-4-/i.test(modelName)) {
+    // Gemini 4 models support LOW, MEDIUM, HIGH (MINIMAL is rejected)
+    return { thinkingLevel: 'LOW' };
+  }
+  if (/gemini-3\.5-flash-lite/i.test(modelName)) {
+    return { thinkingLevel: 'MINIMAL' };
+  }
+  if (/gemini-3\./i.test(modelName)) {
+    return { thinkingLevel: 'LOW' };
+  }
   if (/gemini-2\.5-flash/i.test(modelName)) {
     return { thinkingBudget: 0 };
   }
-  // Gemini 3.x Flash models use thinkingLevel instead of thinkingBudget
   return null;
 }
 
-async function generateViaCloudAPI(promptText, customInstructions = '', mode = 'reply') {
+function buildCloudGenerationConfig(modelName, maxOutputTokens, defaultTemp = 0.85) {
+  const cfg = { maxOutputTokens };
+  // Gemini 4 & 3.5 Flash-Lite ignore or deprecate temperature/topP/topK
+  if (!/gemini-4-|gemini-3\.5-flash-lite/i.test(modelName)) {
+    cfg.temperature = defaultTemp;
+  }
+  const thinkingCfg = buildThinkingConfigForModel(modelName);
+  if (thinkingCfg) {
+    cfg.thinkingConfig = thinkingCfg;
+  }
+  return cfg;
+}
+
+function computeOutputTokenBudget(effectiveLimit = 280, isReasoningModel = false) {
+  const baseTokens = Math.ceil(Math.max(20, effectiveLimit) / 2.5) + 128;
+  return Math.min(4096, Math.max(512, baseTokens + (isReasoningModel ? 512 : 0)));
+}
+
+async function generateViaCloudAPI(promptText, customInstructions = '', mode = 'reply', maxLength = null) {
   const {
     apiKey = '',
     cloudModel = 'gemini-3.5-flash-lite'
@@ -181,44 +250,42 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
     throw new Error('Gemini API key is missing. Please open extension settings and configure your Google Gemini API key.');
   }
 
-  let targetModel = cloudModel || 'gemini-3.5-flash-lite';
-  if (/gemma|1\.5|2\.0|2\.5-flash-lite/i.test(targetModel)) {
-    targetModel = 'gemini-3.5-flash-lite';
-    await chrome.storage.local.set({ cloudModel: 'gemini-3.5-flash-lite' });
+  let targetModel = normalizeCloudModel(cloudModel);
+  if (targetModel !== cloudModel) {
+    await chrome.storage.local.set({ cloudModel: targetModel });
   }
 
-  const charLimit = extractCustomCharLimit(customInstructions, 260);
+  const effectiveLimit = resolveEffectiveMaxLength(maxLength, customInstructions, 260);
+  const promptRules = stripConflictingLengthClause(customInstructions, maxLength !== null && maxLength !== undefined);
+  const longFormHint = effectiveLimit > 280 ? ' Long-form post/reply allowed; use clean line breaks if helpful.' : '';
   let systemInstructionText = mode === 'post'
-    ? `You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under ${charLimit} characters. Never start or begin the tweet with emojis. Plain text only without HTML/XML tags, citations, or internal links.`
-    : `You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text under ${charLimit} characters. Never start or begin the reply with emojis. Plain text only without HTML/XML tags, citations, or internal links.`;
+    ? `You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text strictly under ${effectiveLimit} characters.${longFormHint} Never start or begin the tweet with emojis. Plain text only without HTML/XML tags, citations, or internal links.`
+    : `You are an authentic Twitter (X) reply generator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options (Option 1/2), notes, or quotes. Output plain text strictly under ${effectiveLimit} characters.${longFormHint} Never start or begin the reply with emojis. Plain text only without HTML/XML tags, citations, or internal links.`;
 
-  if (customInstructions) {
-    systemInstructionText += ' STRICT USER RULES: ' + customInstructions;
+  if (promptRules) {
+    systemInstructionText += ' STRICT USER RULES: ' + promptRules;
   }
   if (hasNoEmojiInstruction(customInstructions)) {
     systemInstructionText += ' Absolutely NO emojis. Plain text only.';
   }
 
-  // Primary candidate models ordered by low latency & high availability in 2026
+  // Primary candidate models ordered by low latency & current availability
   const uniqueCandidateModels = Array.from(new Set([
     targetModel,
     'gemini-3.5-flash-lite',
-    'gemini-3.6-flash',
-    'gemini-3.8-flash',
-    'gemini-2.5-flash'
+    'gemini-4-hydrogen',
+    'gemini-4-argon',
+    'gemini-3.8-flash'
   ])).filter(Boolean);
 
   let lastErrorDetail = '';
   for (const model of uniqueCandidateModels) {
-    const generationConfig = {
-      temperature: 0.85,
-      maxOutputTokens: /pro/i.test(model) ? 1024 : 512
-    };
-
-    const thinkingCfg = buildThinkingConfigForModel(model);
-    if (thinkingCfg) {
-      generationConfig.thinkingConfig = thinkingCfg;
-    }
+    const isReasoning = /gemini-4-|pro/i.test(model);
+    const generationConfig = buildCloudGenerationConfig(
+      model,
+      computeOutputTokenBudget(effectiveLimit, isReasoning),
+      0.85
+    );
 
     const requestBody = {
       contents: [
@@ -235,7 +302,7 @@ async function generateViaCloudAPI(promptText, customInstructions = '', mode = '
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
     const reqStart = Date.now();
-    const timeoutMs = /pro/i.test(model) ? 12000 : 8000;
+    const timeoutMs = /gemini-4-(?:carbon|neon|argon)|pro/i.test(model) ? 12000 : 8000;
 
     try {
       console.log(`[Background] Cloud API: Requesting '${model}'...`);
@@ -325,15 +392,13 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.5-flash-li
     return { valid: false, message: `Network error verifying key: ${netErr.message}` };
   }
 
-  const modelToTest = (!requestedModel || /1\.5|2\.0|2\.5-flash-lite/i.test(requestedModel))
-    ? 'gemini-3.5-flash-lite'
-    : requestedModel;
+  const modelToTest = normalizeCloudModel(requestedModel);
 
-  const generationConfig = { temperature: 0.7, maxOutputTokens: 20 };
-  const thinkingCfg = buildThinkingConfigForModel(modelToTest);
-  if (thinkingCfg) {
-    generationConfig.thinkingConfig = thinkingCfg;
-  }
+  const generationConfig = buildCloudGenerationConfig(
+    modelToTest,
+    /gemini-4-|pro/i.test(modelToTest) ? 256 : 32,
+    0.7
+  );
 
   try {
     const testRes = await fetch(
@@ -374,7 +439,7 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.5-flash-li
     }
 
     if (testRes.status === 404 || errDetail.includes('no longer available')) {
-      const fallback = availableModels.find(m => m.includes('3.5-flash-lite') || (m.includes('flash') && !m.includes('2.5-flash-lite') && !m.includes('image') && !m.includes('tts') && !m.includes('audio'))) || 'gemini-3.5-flash-lite';
+      const fallback = availableModels.find(m => m.includes('3.5-flash-lite') || m.includes('4-hydrogen') || m.includes('4-argon')) || 'gemini-3.5-flash-lite';
       return {
         valid: true,
         model: fallback,
@@ -400,6 +465,364 @@ async function validateCloudAPIKey(apiKey, requestedModel = 'gemini-3.5-flash-li
       message: `Network/timeout error testing ${modelToTest}: ${genErr.message}`
     };
   }
+}
+
+// ==========================================
+// ENGINE: CUSTOM API (OPENAI / ANTHROPIC COMPATIBLE)
+// ==========================================
+const RESTRICTED_CUSTOM_HEADERS = new Set([
+  'host', 'origin', 'referer', 'content-length', 'connection', 'cookie', 'user-agent'
+]);
+
+function isLoopbackHostname(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+}
+
+function normalizeCustomApiUrl(rawUrl, format = 'openai', purpose = 'completion') {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) {
+    throw new Error('Custom API Endpoint URL is missing. Please configure it in extension settings.');
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch (e) {
+    throw new Error('Custom API URL is invalid. Please enter a full URL such as https://api.openai.com/v1');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Custom API URL must start with https:// (or http:// for localhost).');
+  }
+
+  if (parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
+    throw new Error('Remote Custom API URLs must use https:// for security (http:// is only allowed for localhost / 127.0.0.1).');
+  }
+
+  let pathname = parsed.pathname.replace(/\/+$/, '');
+  const origin = parsed.origin;
+
+  if (purpose === 'models') {
+    pathname = pathname
+      .replace(/\/chat\/completions$/i, '')
+      .replace(/\/messages$/i, '')
+      .replace(/\/models$/i, '');
+    if (!pathname) pathname = '/v1';
+    return {
+      url: `${origin}${pathname}/models`,
+      originPattern: `${origin}/*`,
+      isLocal: isLoopbackHostname(parsed.hostname)
+    };
+  }
+
+  if (format === 'anthropic') {
+    if (!/\/messages$/i.test(pathname)) {
+      if (!pathname) pathname = '/v1';
+      pathname = `${pathname}/messages`;
+    }
+  } else {
+    if (!/\/chat\/completions$/i.test(pathname)) {
+      if (!pathname) pathname = '/v1';
+      pathname = `${pathname}/chat/completions`;
+    }
+  }
+
+  return {
+    url: `${origin}${pathname}${parsed.search || ''}`,
+    originPattern: `${origin}/*`,
+    isLocal: isLoopbackHostname(parsed.hostname)
+  };
+}
+
+function parseCustomHeaders(rawHeaders) {
+  const result = {};
+  const trimmed = String(rawHeaders || '').trim();
+  if (!trimmed) return result;
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    throw new Error('Custom API headers must be valid JSON (e.g. {"X-Title": "Twitter AI"}).');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Custom API headers must be a JSON object.');
+  }
+  for (const [k, v] of Object.entries(parsed)) {
+    const cleanKey = String(k).trim();
+    if (!cleanKey || RESTRICTED_CUSTOM_HEADERS.has(cleanKey.toLowerCase())) continue;
+    if (v !== undefined && v !== null) {
+      result[cleanKey] = String(v);
+    }
+  }
+  return result;
+}
+
+async function checkCustomApiOriginPermission(originPattern) {
+  if (!chrome?.permissions?.contains) return true;
+  try {
+    return await chrome.permissions.contains({ origins: [originPattern] });
+  } catch (e) {
+    return false;
+  }
+}
+
+function extractCustomApiText(data, format = 'openai') {
+  let raw = '';
+  if (format === 'anthropic') {
+    if (Array.isArray(data?.content)) {
+      raw = data.content
+        .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+        .map(b => b.text)
+        .join('');
+    } else if (typeof data?.completion === 'string') {
+      raw = data.completion;
+    }
+  } else {
+    const msgContent = data?.choices?.[0]?.message?.content;
+    if (typeof msgContent === 'string') {
+      raw = msgContent;
+    } else if (Array.isArray(msgContent)) {
+      raw = msgContent
+        .filter(p => p && typeof p.text === 'string')
+        .map(p => p.text)
+        .join('');
+    } else if (typeof data?.choices?.[0]?.text === 'string') {
+      raw = data.choices[0].text;
+    } else if (typeof data?.message?.content === 'string') {
+      raw = data.message.content;
+    }
+  }
+  return raw.replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '').trim();
+}
+
+async function generateViaCustomAPI(promptText, customInstructions = '', mode = 'reply', maxLength = null) {
+  const stored = await chrome.storage.local.get(['customApi']);
+  const cfg = { ...DEFAULT_CUSTOM_API, ...(stored?.customApi || {}) };
+  const format = cfg.format === 'anthropic' ? 'anthropic' : 'openai';
+  const model = String(cfg.model || '').trim();
+  const cleanKey = String(cfg.apiKey || '').trim();
+
+  if (!model) {
+    throw new Error('Custom API model name is missing. Please set a model in Custom API settings.');
+  }
+
+  const { url, originPattern, isLocal } = normalizeCustomApiUrl(cfg.baseUrl, format, 'completion');
+  const extraHeaders = parseCustomHeaders(cfg.customHeaders);
+
+  if (!isLocal && !cleanKey && Object.keys(extraHeaders).length === 0) {
+    throw new Error('Custom API key is missing for remote endpoint. Enter your API key in settings.');
+  }
+
+  const hasPermission = await checkCustomApiOriginPermission(originPattern);
+  if (!hasPermission) {
+    throw new Error(`Custom API host permission not granted for ${originPattern}. Open settings and click "Verify & Save" to grant access.`);
+  }
+
+  const effectiveLimit = resolveEffectiveMaxLength(maxLength, customInstructions, 260);
+  const promptRules = stripConflictingLengthClause(customInstructions, maxLength !== null && maxLength !== undefined);
+  const longFormHint = effectiveLimit > 280 ? ' Long-form post/reply allowed; use clean line breaks if helpful.' : '';
+  let systemContent = mode === 'post'
+    ? `You are an elite Twitter (X) post creator. Output ONLY the single final tweet text to post. NEVER output brainstorming, reasoning, options, notes, or quotes. Output plain text strictly under ${effectiveLimit} characters.${longFormHint} Never start or begin the tweet with emojis. Plain text only without HTML/XML tags.`
+    : `You are an authentic Twitter (X) reply generator. Output ONLY the single final reply text to post. NEVER output brainstorming, reasoning, options, notes, or quotes. Output plain text strictly under ${effectiveLimit} characters.${longFormHint} Never start or begin the reply with emojis. Plain text only without HTML/XML tags.`;
+
+  if (promptRules) {
+    systemContent += ' STRICT USER RULES: ' + promptRules;
+  }
+  if (hasNoEmojiInstruction(customInstructions)) {
+    systemContent += ' Absolutely NO emojis. Plain text only.';
+  }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...extraHeaders
+  };
+
+  const tokenBudget = computeOutputTokenBudget(effectiveLimit, /r1|reason|think|o1|o3|o4/i.test(model));
+  let bodyPayload;
+
+  if (format === 'anthropic') {
+    if (cleanKey) headers['x-api-key'] = cleanKey;
+    headers['anthropic-version'] = headers['anthropic-version'] || '2023-06-01';
+    headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    bodyPayload = {
+      model,
+      system: systemContent,
+      messages: [{ role: 'user', content: promptText }],
+      max_tokens: tokenBudget,
+      temperature: 0.8
+    };
+  } else {
+    if (cleanKey) headers['Authorization'] = `Bearer ${cleanKey}`;
+    bodyPayload = {
+      model,
+      messages: [
+        { role: 'system', content: systemContent },
+        { role: 'user', content: promptText }
+      ],
+      max_tokens: tokenBudget,
+      temperature: 0.8
+    };
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(bodyPayload),
+    signal: AbortSignal.timeout(20000)
+  });
+
+  if (!response.ok) {
+    const errJson = await response.json().catch(() => ({}));
+    const detail = errJson.error?.message || errJson.message || `HTTP ${response.status} ${response.statusText}`;
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`Custom API authentication/permission failed (${response.status}): ${detail}`);
+    }
+    if (response.status === 404) {
+      throw new Error(`Custom API endpoint or model not found (404): ${detail}`);
+    }
+    throw new Error(`Custom API Error (${response.status}): ${detail}`);
+  }
+
+  const data = await response.json();
+  const text = extractCustomApiText(data, format);
+  if (!text) {
+    throw new Error('Received empty response from Custom API.');
+  }
+
+  return { text, model };
+}
+
+async function validateCustomAPIConfig(config = {}) {
+  const cfg = { ...DEFAULT_CUSTOM_API, ...config };
+  const format = cfg.format === 'anthropic' ? 'anthropic' : 'openai';
+  const model = String(cfg.model || '').trim();
+  const cleanKey = String(cfg.apiKey || '').trim();
+
+  if (!model) {
+    return { valid: false, message: 'Please enter a model name first.' };
+  }
+
+  let normalized;
+  try {
+    normalized = normalizeCustomApiUrl(cfg.baseUrl, format, 'completion');
+  } catch (e) {
+    return { valid: false, message: e.message };
+  }
+
+  let extraHeaders;
+  try {
+    extraHeaders = parseCustomHeaders(cfg.customHeaders);
+  } catch (e) {
+    return { valid: false, message: e.message };
+  }
+
+  if (!normalized.isLocal && !cleanKey && Object.keys(extraHeaders).length === 0) {
+    return {
+      valid: false,
+      message: 'API key is required for remote endpoints (optional only for localhost).'
+    };
+  }
+
+  const hasPermission = await checkCustomApiOriginPermission(normalized.originPattern);
+  if (!hasPermission) {
+    return {
+      valid: false,
+      needsPermission: true,
+      originPattern: normalized.originPattern,
+      message: `Permission required for ${normalized.originPattern}.`
+    };
+  }
+
+  const headers = { 'Content-Type': 'application/json', ...extraHeaders };
+  let bodyPayload;
+  if (format === 'anthropic') {
+    if (cleanKey) headers['x-api-key'] = cleanKey;
+    headers['anthropic-version'] = headers['anthropic-version'] || '2023-06-01';
+    headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    bodyPayload = {
+      model,
+      messages: [{ role: 'user', content: 'Reply with OK' }],
+      max_tokens: 16,
+      temperature: 0.2
+    };
+  } else {
+    if (cleanKey) headers['Authorization'] = `Bearer ${cleanKey}`;
+    bodyPayload = {
+      model,
+      messages: [{ role: 'user', content: 'Reply with OK' }],
+      max_tokens: 16,
+      temperature: 0.2
+    };
+  }
+
+  try {
+    const res = await fetch(normalized.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(bodyPayload),
+      signal: AbortSignal.timeout(12000)
+    });
+
+    if (res.ok) {
+      return {
+        valid: true,
+        model,
+        resolvedUrl: normalized.url,
+        message: `✓ Connected to ${model}`
+      };
+    }
+
+    const errJson = await res.json().catch(() => ({}));
+    const detail = errJson.error?.message || errJson.message || `HTTP ${res.status} ${res.statusText}`;
+    return {
+      valid: false,
+      message: `Endpoint error (${res.status}): ${String(detail).substring(0, 120)}`
+    };
+  } catch (err) {
+    return {
+      valid: false,
+      message: `Connection failed: ${err.message}`
+    };
+  }
+}
+
+async function fetchCustomAPIModels(config = {}) {
+  const cfg = { ...DEFAULT_CUSTOM_API, ...config };
+  const format = cfg.format === 'anthropic' ? 'anthropic' : 'openai';
+  const cleanKey = String(cfg.apiKey || '').trim();
+
+  const normalized = normalizeCustomApiUrl(cfg.baseUrl, format, 'models');
+  const hasPermission = await checkCustomApiOriginPermission(normalized.originPattern);
+  if (!hasPermission) {
+    throw new Error(`Permission required for ${normalized.originPattern}.`);
+  }
+
+  const extraHeaders = parseCustomHeaders(cfg.customHeaders);
+  const headers = { ...extraHeaders };
+  if (format === 'anthropic') {
+    if (cleanKey) headers['x-api-key'] = cleanKey;
+    headers['anthropic-version'] = headers['anthropic-version'] || '2023-06-01';
+  } else if (cleanKey) {
+    headers['Authorization'] = `Bearer ${cleanKey}`;
+  }
+
+  const res = await fetch(normalized.url, {
+    method: 'GET',
+    headers,
+    signal: AbortSignal.timeout(8000)
+  });
+
+  if (!res.ok) {
+    throw new Error(`Model list returned HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  const list = Array.isArray(data?.data)
+    ? data.data.map(m => m.id || m.name).filter(Boolean)
+    : (Array.isArray(data?.models) ? data.models.map(m => m.id || m.name || m.model).filter(Boolean) : []);
+
+  return Array.from(new Set(list)).slice(0, 100);
 }
 
 // ==========================================
@@ -850,15 +1273,19 @@ async function generateViaWebTab(promptText) {
 // ==========================================
 // RESILIENT MULTI-ENGINE FALLBACK PIPELINE
 // ==========================================
-async function executeWithFallback(engine, promptText, customInstructions = '', mode = 'reply', disableFallback = false) {
+async function executeWithFallback(engine, promptText, customInstructions = '', mode = 'reply', disableFallback = false, maxLength = null) {
   try {
     if (engine === 'nano') {
-      const reply = await generateViaNano(promptText, customInstructions, mode);
+      const reply = await generateViaNano(promptText, customInstructions, mode, maxLength);
       return { reply, engine: 'Gemini Nano' };
     }
     if (engine === 'cloud_api') {
-      const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode);
+      const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode, maxLength);
       return { reply: text, engine: `Cloud API (${usedModel})` };
+    }
+    if (engine === 'custom_api') {
+      const { text, model } = await generateViaCustomAPI(promptText, customInstructions, mode, maxLength);
+      return { reply: text, engine: `Custom API (${model})` };
     }
     if (engine === 'headless') {
       const reply = await generateViaHeadless(promptText);
@@ -880,12 +1307,62 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
       }
     }
 
+    if (engine === 'custom_api') {
+      const isCustomConfigError = /custom api.*(?:missing|invalid|must use https|not granted|authentication\/permission failed|not found)|permission required/i.test(primaryErr.message);
+      if (isCustomConfigError) {
+        throw primaryErr;
+      }
+
+      try {
+        const { apiKey = '' } = await chrome.storage.local.get(['apiKey']);
+        if (apiKey.trim().length > 10) {
+          console.log('[Background] Custom API failed, falling back to Cloud API.');
+          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode, maxLength);
+          return { reply: text, engine: `Cloud API (${usedModel}) (fallback)` };
+        }
+      } catch (cloudErr) {
+        console.warn('[Background] Fallback to Cloud API failed:', cloudErr);
+      }
+
+      try {
+        const nanoStatus = await checkNanoStatus();
+        if (nanoStatus.available && nanoStatus.isReady !== false) {
+          console.log('[Background] Custom API failed, falling back to local Gemini Nano.');
+          const reply = await generateViaNano(promptText, customInstructions, mode, maxLength);
+          return { reply, engine: 'Gemini Nano (fallback)' };
+        }
+      } catch (nanoErr) {
+        console.warn('[Background] Fallback to Gemini Nano failed:', nanoErr);
+      }
+
+      try {
+        console.log('[Background] Custom API failed, attempting silent Headless fallback.');
+        const reply = await generateViaHeadless(promptText);
+        return { reply, engine: 'Headless Web (fallback)' };
+      } catch (headlessErr) {
+        console.warn('[Background] Silent Headless fallback failed:', headlessErr);
+      }
+
+      const existingTab = await findGeminiTab();
+      if (existingTab) {
+        try {
+          console.log('[Background] Custom API failed, falling back to existing Gemini Web Tab.');
+          const reply = await generateViaWebTab(promptText);
+          return { reply, engine: 'Gemini Web Tab (fallback)' };
+        } catch (tabErr) {
+          console.warn('[Background] Web Tab fallback failed:', tabErr);
+        }
+      }
+
+      throw primaryErr;
+    }
+
     if (engine === 'cloud_api') {
       try {
         const nanoStatus = await checkNanoStatus();
         if (nanoStatus.available && nanoStatus.isReady !== false) {
           console.log('[Background] Cloud API failed, falling back to local Gemini Nano.');
-          const reply = await generateViaNano(promptText, customInstructions, mode);
+          const reply = await generateViaNano(promptText, customInstructions, mode, maxLength);
           return { reply, engine: 'Gemini Nano (fallback)' };
         }
       } catch (nanoErr) {
@@ -919,7 +1396,7 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
         const { apiKey = '' } = await chrome.storage.local.get(['apiKey']);
         if (apiKey.trim().length > 10) {
           console.log('[Background] Gemini Nano failed, falling back to Cloud API.');
-          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode);
+          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode, maxLength);
           return { reply: text, engine: `Cloud API (${usedModel}) (fallback)` };
         }
       } catch (cloudErr) {
@@ -953,7 +1430,7 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
         const nanoStatus = await checkNanoStatus();
         if (nanoStatus.available && nanoStatus.isReady !== false) {
           console.log('[Background] Headless failed, falling back to Gemini Nano.');
-          const reply = await generateViaNano(promptText, customInstructions, mode);
+          const reply = await generateViaNano(promptText, customInstructions, mode, maxLength);
           return { reply, engine: 'Gemini Nano (fallback)' };
         }
       } catch (nanoErr) {
@@ -964,7 +1441,7 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
         const { apiKey = '' } = await chrome.storage.local.get(['apiKey']);
         if (apiKey.trim().length > 10) {
           console.log('[Background] Headless failed, falling back to Cloud API.');
-          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode);
+          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode, maxLength);
           return { reply: text, engine: `Cloud API (${usedModel}) (fallback)` };
         }
       } catch (cloudErr) {
@@ -990,7 +1467,7 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
         const { apiKey = '' } = await chrome.storage.local.get(['apiKey']);
         if (apiKey.trim().length > 10) {
           console.log('[Background] Web Tab failed, falling back to Cloud API.');
-          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode);
+          const { text, usedModel } = await generateViaCloudAPI(promptText, customInstructions, mode, maxLength);
           return { reply: text, engine: `Cloud API (${usedModel}) (fallback)` };
         }
       } catch (cloudErr) {
@@ -1001,7 +1478,7 @@ async function executeWithFallback(engine, promptText, customInstructions = '', 
         const nanoStatus = await checkNanoStatus();
         if (nanoStatus.available && nanoStatus.isReady !== false) {
           console.log('[Background] Web Tab failed, falling back to Gemini Nano.');
-          const reply = await generateViaNano(promptText, customInstructions, mode);
+          const reply = await generateViaNano(promptText, customInstructions, mode, maxLength);
           return { reply, engine: 'Gemini Nano (fallback)' };
         }
       } catch (nanoErr) {
@@ -1026,8 +1503,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'CHECK_ENGINE_STATUS') {
         let { engine = 'cloud_api', apiKey = '', cloudModel = 'gemini-3.5-flash-lite' } = await chrome.storage.local.get(['engine', 'apiKey', 'cloudModel']);
 
-        if (!cloudModel || /gemma|1\.5|2\.0|2\.5-flash-lite/i.test(cloudModel)) {
-          cloudModel = 'gemini-3.5-flash-lite';
+        const normalizedModel = normalizeCloudModel(cloudModel);
+        if (normalizedModel !== cloudModel) {
+          cloudModel = normalizedModel;
           await chrome.storage.local.set({ cloudModel });
         }
 
@@ -1042,6 +1520,62 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               : 'Gemini API Key required. Open Settings to enter your key.',
             model: cloudModel
           });
+        }
+
+        if (engine === 'custom_api') {
+          const storedCustom = await chrome.storage.local.get(['customApi']);
+          const cfg = { ...DEFAULT_CUSTOM_API, ...(storedCustom?.customApi || {}) };
+          const model = String(cfg.model || '').trim();
+          const baseUrl = String(cfg.baseUrl || '').trim();
+          if (!baseUrl || !model) {
+            return sendResponse({
+              engine: 'custom_api',
+              connected: false,
+              statusText: !baseUrl ? 'URL Missing' : 'Model Missing',
+              message: 'Configure your Custom API Endpoint URL and Model in extension settings.'
+            });
+          }
+          try {
+            const normalized = normalizeCustomApiUrl(baseUrl, cfg.format || 'openai', 'completion');
+            const hasKey = String(cfg.apiKey || '').trim().length > 0;
+            let hasCustomAuth = false;
+            try {
+              hasCustomAuth = Object.keys(parseCustomHeaders(cfg.customHeaders)).length > 0;
+            } catch (e) {}
+
+            if (!normalized.isLocal && !hasKey && !hasCustomAuth) {
+              return sendResponse({
+                engine: 'custom_api',
+                connected: false,
+                statusText: 'Key Missing',
+                message: 'API Key required for remote Custom API endpoint. Enter your key in Settings.'
+              });
+            }
+
+            const hasPerm = await checkCustomApiOriginPermission(normalized.originPattern);
+            if (!hasPerm) {
+              return sendResponse({
+                engine: 'custom_api',
+                connected: false,
+                statusText: 'Permission Needed',
+                message: `Open Settings and click "Verify & Save" to grant access to ${normalized.originPattern}.`
+              });
+            }
+            return sendResponse({
+              engine: 'custom_api',
+              connected: true,
+              statusText: `Ready (${model})`,
+              message: `Connected to Custom API (${model}). 0 tabs needed!`,
+              model
+            });
+          } catch (urlErr) {
+            return sendResponse({
+              engine: 'custom_api',
+              connected: false,
+              statusText: 'Invalid URL',
+              message: urlErr.message
+            });
+          }
         }
 
         if (engine === 'nano') {
@@ -1130,6 +1664,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return sendResponse(validation);
       }
 
+      if (message.type === 'VALIDATE_CUSTOM_API') {
+        const validation = await validateCustomAPIConfig(message.payload || {});
+        return sendResponse(validation);
+      }
+
+      if (message.type === 'FETCH_CUSTOM_API_MODELS') {
+        try {
+          const models = await fetchCustomAPIModels(message.payload || {});
+          return sendResponse({ success: true, models });
+        } catch (err) {
+          return sendResponse({ success: false, message: err.message });
+        }
+      }
+
       if (message.type === 'OPEN_GEMINI') {
         let geminiTab = await findGeminiTab();
         if (geminiTab) {
@@ -1148,54 +1696,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       if (message.type === 'GENERATE_REPLY') {
-        const settings = await chrome.storage.local.get(['engine', 'customInstructions']);
+        const settings = await chrome.storage.local.get(['engine', 'customInstructions', 'maxReplyLength']);
         const engine = message.payload?.engineOverride || settings.engine || 'cloud_api';
         const disableFallback = !!message.payload?.disableFallback;
         const customInstructions = settings.customInstructions || message.payload?.customInstructions || '';
+        const maxReplyLength = resolveEffectiveMaxLength(
+          message.payload?.maxLength ?? settings.maxReplyLength,
+          customInstructions,
+          280
+        );
         const promptText = buildGeminiPrompt({
           ...message.payload,
-          customInstructions
+          customInstructions,
+          maxLength: maxReplyLength
         });
 
-        const result = await executeWithFallback(engine, promptText, customInstructions, 'reply', disableFallback);
+        const result = await executeWithFallback(engine, promptText, customInstructions, 'reply', disableFallback, maxReplyLength);
 
         return sendResponse({
           success: true,
-          reply: cleanGeneratedReply(result.reply, customInstructions, 'reply'),
+          reply: cleanGeneratedReply(result.reply, customInstructions, 'reply', maxReplyLength),
           engine: result.engine
         });
       }
 
       if (message.type === 'GENERATE_POST') {
-        const settings = await chrome.storage.local.get(['engine', 'customInstructions']);
+        const settings = await chrome.storage.local.get(['engine', 'customInstructions', 'maxPostLength']);
         const engine = message.payload?.engineOverride || settings.engine || 'cloud_api';
         const disableFallback = !!message.payload?.disableFallback;
         const customInstructions = settings.customInstructions || message.payload?.customInstructions || '';
+        const maxPostLength = resolveEffectiveMaxLength(
+          message.payload?.maxLength ?? settings.maxPostLength,
+          customInstructions,
+          280
+        );
         const promptText = buildGeminiPostPrompt({
           ...message.payload,
-          customInstructions
+          customInstructions,
+          maxLength: maxPostLength
         });
 
-        const result = await executeWithFallback(engine, promptText, customInstructions, 'post', disableFallback);
+        const result = await executeWithFallback(engine, promptText, customInstructions, 'post', disableFallback, maxPostLength);
 
         return sendResponse({
           success: true,
-          post: cleanGeneratedPost(result.reply, customInstructions),
+          post: cleanGeneratedPost(result.reply, customInstructions, maxPostLength),
           engine: result.engine
         });
       }
 
       sendResponse({ success: false, error: 'UNKNOWN_TYPE' });
     } catch (globalError) {
-      console.error('[Background] Error:', globalError);
       const errMsg = globalError.message || '';
       let errCode = 'INTERNAL_ERROR';
       if (/not logged in|session token|log in|ServiceLogin/i.test(errMsg)) {
         errCode = 'NOT_LOGGED_IN';
       } else if (/no tab|tab is not open|not responding/i.test(errMsg)) {
         errCode = 'NO_TAB';
+      } else if (/host permission not granted|permission required/i.test(errMsg)) {
+        errCode = 'PERMISSION_ERROR';
+      } else if (/custom api/i.test(errMsg)) {
+        errCode = 'CUSTOM_API_ERROR';
       } else if (/api key/i.test(errMsg)) {
         errCode = 'API_KEY_ERROR';
+      }
+
+      if (errCode === 'INTERNAL_ERROR') {
+        console.error('[Background] Error:', globalError);
+      } else {
+        console.warn(`[Background] Handled ${errCode}: ${errMsg}`);
       }
 
       sendResponse({
@@ -1224,14 +1793,34 @@ function extractCustomCharLimit(instructions, defaultLimit = 260) {
   const match = instructions.match(/(?:under|max|less than|within|limit to)\s*(\d{2,4})\s*(?:chars|characters)/i);
   if (match) {
     const parsed = parseInt(match[1], 10);
-    if (!isNaN(parsed) && parsed >= 20 && parsed <= 2000) {
+    if (!isNaN(parsed) && parsed >= 20 && parsed <= 4000) {
       return parsed;
     }
   }
   return defaultLimit;
 }
 
-function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions }) {
+function resolveEffectiveMaxLength(configuredLimit, customInstructions = '', fallbackDefault = 280) {
+  if (configuredLimit !== null && configuredLimit !== undefined && configuredLimit !== '') {
+    const parsed = parseInt(configuredLimit, 10);
+    if (!isNaN(parsed)) {
+      return Math.min(4000, Math.max(20, parsed));
+    }
+  }
+  return extractCustomCharLimit(customInstructions, fallbackDefault);
+}
+
+function stripConflictingLengthClause(instructions, hasExplicitLimit = false) {
+  if (!instructions || !hasExplicitLimit) return instructions || '';
+  return instructions
+    .replace(/,?\s*(?:under|max|less than|within|limit to)\s*\d{2,4}\s*(?:chars|characters)\.?\s*/gi, '. ')
+    .replace(/\.\s*\./g, '.')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^\s*[,;.]+\s*/, '')
+    .trim();
+}
+
+function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions, maxLength = null }) {
   const toneDescriptions = {
     quick: 'natural, friendly, and relevant',
     agree: 'supportive, validating, and constructive',
@@ -1245,14 +1834,15 @@ function buildGeminiPrompt({ tweetText, tweetAuthor, tone, customInstructions })
   const authorMention = tweetAuthor ? ` by @${tweetAuthor}` : '';
   const noEmoji = hasNoEmojiInstruction(customInstructions);
   const noHashtags = hasNoHashtagInstruction(customInstructions);
-  const charLimit = extractCustomCharLimit(customInstructions, 260);
+  const charLimit = resolveEffectiveMaxLength(maxLength, customInstructions, 260);
+  const promptRules = stripConflictingLengthClause(customInstructions, maxLength !== null && maxLength !== undefined);
 
-  const customBlock = customInstructions
-    ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${customInstructions}\n\n`
+  const customBlock = promptRules
+    ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${promptRules}\n\n`
     : '';
 
-  const bottomReminder = customInstructions
-    ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}\n`
+  const bottomReminder = promptRules
+    ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${promptRules}\n`
     : '';
 
   return `${customBlock}You are an authentic user on Twitter (X). Write a ${selectedTone} reply to this tweet${authorMention}:
@@ -1261,17 +1851,17 @@ ${tweetText}
 """
 
 Requirements:
-- Single direct reply only, under ${charLimit} characters.
+- Single direct reply only, strictly under ${charLimit} characters.${charLimit > 280 ? ' Long-form reply allowed; use clean line breaks if helpful.' : ''}
 - Conversational and human.
 - No quotation marks.
 - No conversational preamble.
 - Never start or begin the reply with emojis or emoticons. If emojis are used, place them naturally within or at the end of the sentence.
 - Plain text only. Do NOT output HTML, XML, URLs, or metadata.
-${customInstructions ? '- Custom Rules override selected Tone and general Requirements.\n' : ''}${noEmoji ? '- No emojis.\n' : ''}${noHashtags ? '- No hashtags.\n' : ''}${bottomReminder}
+${promptRules ? '- Custom Rules override selected Tone and general Requirements (except the max character limit above).\n' : ''}${noEmoji ? '- No emojis.\n' : ''}${noHashtags ? '- No hashtags.\n' : ''}${bottomReminder}
 Reply:`;
 }
 
-function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
+function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply', maxLength = null) {
   if (!rawText) return '';
   let text = rawText.trim();
 
@@ -1290,7 +1880,7 @@ function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
       }
       let candidate = chosen[2].trim().replace(/^["'“]|["'”]$/g, '').trim();
       if (candidate.length >= 10) {
-        return sanitizeTweetOutput(candidate, customInstructions);
+        return sanitizeTweetOutput(candidate, customInstructions, maxLength);
       }
     }
 
@@ -1301,7 +1891,7 @@ function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
         return !t.toLowerCase().includes('original tweet') && t.length >= 15;
       });
       if (validQuotes.length > 0) {
-        return sanitizeTweetOutput(validQuotes[validQuotes.length - 1][1].trim(), customInstructions);
+        return sanitizeTweetOutput(validQuotes[validQuotes.length - 1][1].trim(), customInstructions, maxLength);
       }
     }
 
@@ -1313,10 +1903,10 @@ function cleanGeneratedReply(rawText, customInstructions = '', mode = 'reply') {
     text = text.replace(/Natural\/Human\?\s*Yes\./gi, '');
   }
 
-  return sanitizeTweetOutput(text, customInstructions);
+  return sanitizeTweetOutput(text, customInstructions, maxLength);
 }
 
-function sanitizeTweetOutput(text, customInstructions = '') {
+function sanitizeTweetOutput(text, customInstructions = '', maxLength = null) {
   if (!text) return '';
   let cleaned = text.trim();
 
@@ -1416,9 +2006,8 @@ function sanitizeTweetOutput(text, customInstructions = '') {
       .trim();
   }
 
-  // 14. Length trimming according to custom character limit (defaults to 280 unless user explicitly specified a custom limit):
-  const customLimit = extractCustomCharLimit(customInstructions, null);
-  const maxLimit = customLimit || 280;
+  // 14. Length trimming according to explicit maxLength or custom instruction limit (defaults to 280):
+  const maxLimit = resolveEffectiveMaxLength(maxLength, customInstructions, 280);
 
   if (cleaned.length > maxLimit) {
     const cut = cleaned.substring(0, Math.max(10, maxLimit - 5));
@@ -1435,7 +2024,7 @@ function sanitizeTweetOutput(text, customInstructions = '') {
   return cleaned;
 }
 
-function buildGeminiPostPrompt({ topicOrDraft, isDraft, isQuote, quotedText, quotedAuthor, style, customInstructions }) {
+function buildGeminiPostPrompt({ topicOrDraft, isDraft, isQuote, quotedText, quotedAuthor, style, customInstructions, maxLength = null }) {
   const styleDescriptions = {
     engaging: 'highly engaging, punchy, with a strong curiosity hook in the first line that grabs immediate attention',
     insight: 'informative, valuable, and actionable thought leadership or life/tech lessons',
@@ -1449,14 +2038,16 @@ function buildGeminiPostPrompt({ topicOrDraft, isDraft, isQuote, quotedText, quo
   const selectedStyle = styleDescriptions[style] || styleDescriptions.engaging;
   const noEmoji = hasNoEmojiInstruction(customInstructions);
   const noHashtags = hasNoHashtagInstruction(customInstructions);
-  const charLimit = extractCustomCharLimit(customInstructions, 260);
+  const charLimit = resolveEffectiveMaxLength(maxLength, customInstructions, 260);
+  const promptRules = stripConflictingLengthClause(customInstructions, maxLength !== null && maxLength !== undefined);
+  const longFormHint = charLimit > 280 ? ' Long-form post allowed; structure cleanly with line breaks if helpful.' : '';
 
-  const customBlock = customInstructions
-    ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${customInstructions}\n\n`
+  const customBlock = promptRules
+    ? `MANDATORY USER RULES — HIGHEST PRIORITY — OVERRIDE EVERYTHING ELSE:\n${promptRules}\n\n`
     : '';
 
-  const hierarchyRule = customInstructions
-    ? '- Custom Rules override selected Style and general Requirements.\n'
+  const hierarchyRule = promptRules
+    ? '- Custom Rules override selected Style and general Requirements (except the max character limit above).\n'
     : '';
 
   if (isQuote && quotedText) {
@@ -1474,12 +2065,12 @@ ${angleNote}
 Target Style: ${selectedStyle}.
 Strict Instructions:
 - Output ONLY the final quote tweet text to post above the quoted tweet.
-- Under ${charLimit} characters total.
+- Strictly under ${charLimit} characters total.${longFormHint}
 - Add value, a sharp takeaway, or witty commentary without merely repeating the quoted tweet.
 - Do NOT wrap in quotes or include preambles.
 - Never start or begin the tweet with emojis or emoticons. If emojis are used, place them naturally within or at the end of sentences.
 - Plain text only. Do NOT output HTML, XML, URLs, or metadata.
-${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${promptRules ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${promptRules}` : ''}`;
   }
 
   if (isDraft) {
@@ -1493,14 +2084,14 @@ ${topicOrDraft}
 Target Style: ${selectedStyle}.
 Strict Instructions:
 - Output ONLY the final polished tweet text.
-- Under ${charLimit} characters total.
+- Strictly under ${charLimit} characters total.${longFormHint}
 - Maintain the original core message and intent.
 - Ensure natural conversational cadence, strong opening, and clean line breaks if needed.
 - Do NOT wrap in quotes.
 - Do NOT include preambles like "Here is a tweet:" or "Revised:".
 - Never start or begin the tweet with emojis or emoticons. If emojis are used, place them naturally within or at the end of sentences.
 - Plain text only. Do NOT output HTML, XML, URLs, or metadata.
-${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${promptRules ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${promptRules}` : ''}`;
   }
 
   return `${customBlock}You are an elite Twitter (X) creator. Write an authentic, high-performing standalone tweet on the given topic or idea.
@@ -1513,17 +2104,17 @@ ${topicOrDraft}
 Target Style: ${selectedStyle}.
 Strict Instructions:
 - Output ONLY the final tweet text.
-- Under ${charLimit} characters total.
+- Strictly under ${charLimit} characters total.${longFormHint}
 - Punchy first line (strong hook).
 - Natural, conversational human tone (avoid corporate jargon or generic influencer clichés).
 - Do NOT wrap in quotes.
 - Do NOT include preambles like "Here is a tweet:" or "Tweet:".
 - Never start or begin the tweet with emojis or emoticons. If emojis are used, place them naturally within or at the end of sentences.
 - Plain text only. Do NOT output HTML, XML, URLs, or metadata.
-${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${customInstructions ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${customInstructions}` : ''}`;
+${hierarchyRule}${noEmoji ? '- MANDATORY: Absolutely NO emojis, symbols, or emoticons under any circumstances. Text ONLY.\n' : ''}${noHashtags ? '- MANDATORY: Absolutely NO hashtags (#).\n' : '- Do NOT include hashtags unless explicitly asked.\n'}${promptRules ? `\nREMINDER — USER RULES STILL APPLY AND CANNOT BE IGNORED:\n${promptRules}` : ''}`;
 }
 
-function cleanGeneratedPost(rawText, customInstructions = '') {
+function cleanGeneratedPost(rawText, customInstructions = '', maxLength = null) {
   if (!rawText) return '';
-  return cleanGeneratedReply(rawText, customInstructions, 'post');
+  return cleanGeneratedReply(rawText, customInstructions, 'post', maxLength);
 }

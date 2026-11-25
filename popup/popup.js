@@ -24,6 +24,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnTestCloudKey = document.getElementById('btn-test-cloud-key');
   const cloudKeyStatus = document.getElementById('cloud-key-status');
 
+  // Custom API Elements
+  const customApiConfigEl = document.getElementById('custom-api-config');
+  const customApiPresetSelect = document.getElementById('custom-api-preset');
+  const customApiFormatSelect = document.getElementById('custom-api-format');
+  const customApiUrlInput = document.getElementById('custom-api-url');
+  const customApiKeyInput = document.getElementById('custom-api-key');
+  const btnToggleCustomKey = document.getElementById('btn-toggle-custom-key');
+  const customApiModelInput = document.getElementById('custom-api-model');
+  const customApiModelsDatalist = document.getElementById('custom-api-models-list');
+  const btnFetchCustomModels = document.getElementById('btn-fetch-custom-models');
+  const customApiHeadersInput = document.getElementById('custom-api-headers');
+  const btnTestCustomApi = document.getElementById('btn-test-custom-api');
+  const customApiStatus = document.getElementById('custom-api-status');
+
+  // Max Length Elements
+  const maxReplyLengthInput = document.getElementById('max-reply-length');
+  const maxPostLengthInput = document.getElementById('max-post-length');
+  const replyPresetBtns = document.querySelectorAll('.length-presets[data-target="reply"] .length-preset-btn');
+  const postPresetBtns = document.querySelectorAll('.length-presets[data-target="post"] .length-preset-btn');
+
+  let currentMaxPostLength = 280;
+
   const btnTest = document.getElementById('btn-test');
   const testInput = document.getElementById('test-input');
   const testOutput = document.getElementById('test-output');
@@ -75,25 +97,101 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => saveStatus.classList.remove('show'), 1500);
   }
 
+  const CUSTOM_API_PRESETS = {
+    openai: { format: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+    openrouter: { format: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: 'google/gemini-2.5-flash' },
+    groq: { format: 'openai', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
+    deepseek: { format: 'openai', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+    xai: { format: 'openai', baseUrl: 'https://api.x.ai/v1', model: 'grok-3-mini' },
+    anthropic: { format: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-3-5-haiku-latest' },
+    ollama: { format: 'openai', baseUrl: 'http://localhost:11434/v1', model: 'llama3.2' },
+    lmstudio: { format: 'openai', baseUrl: 'http://localhost:1234/v1', model: 'local-model' },
+    custom: { format: 'openai', baseUrl: '', model: '' }
+  };
+
+  function clampLengthValue(val, fallback = 280) {
+    const parsed = parseInt(val, 10);
+    if (isNaN(parsed)) return fallback;
+    return Math.min(4000, Math.max(20, parsed));
+  }
+
+  function syncLengthPresetButtons(btns, value) {
+    btns.forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.val, 10) === value);
+    });
+  }
+
+  function applyCustomApiFields(cfg = {}) {
+    if (customApiPresetSelect) customApiPresetSelect.value = cfg.preset || 'openai';
+    if (customApiFormatSelect) customApiFormatSelect.value = cfg.format || 'openai';
+    if (customApiUrlInput && document.activeElement !== customApiUrlInput) customApiUrlInput.value = cfg.baseUrl ?? 'https://api.openai.com/v1';
+    if (customApiKeyInput && document.activeElement !== customApiKeyInput) customApiKeyInput.value = cfg.apiKey || '';
+    if (customApiModelInput && document.activeElement !== customApiModelInput) customApiModelInput.value = cfg.model || '';
+    if (customApiHeadersInput && document.activeElement !== customApiHeadersInput) customApiHeadersInput.value = cfg.customHeaders || '';
+  }
+
+  function readCustomApiForm() {
+    return {
+      preset: customApiPresetSelect ? customApiPresetSelect.value : 'custom',
+      format: customApiFormatSelect ? customApiFormatSelect.value : 'openai',
+      baseUrl: customApiUrlInput ? customApiUrlInput.value.trim() : '',
+      apiKey: customApiKeyInput ? customApiKeyInput.value.trim() : '',
+      model: customApiModelInput ? customApiModelInput.value.trim() : '',
+      customHeaders: customApiHeadersInput ? customApiHeadersInput.value.trim() : ''
+    };
+  }
+
+  async function requestCustomApiOriginPermission(rawUrl) {
+    if (!rawUrl) return false;
+    let originPattern;
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+      originPattern = `${parsed.origin}/*`;
+    } catch (e) {
+      return false;
+    }
+
+    if (!chrome?.permissions?.contains || !chrome?.permissions?.request) return true;
+    const alreadyGranted = await chrome.permissions.contains({ origins: [originPattern] });
+    if (alreadyGranted) return true;
+    return await chrome.permissions.request({ origins: [originPattern] });
+  }
+
   // Load saved preferences
   const settings = await chrome.storage.local.get([
     'engine',
     'defaultTone',
     'defaultPostStyle',
     'customInstructions',
+    'maxReplyLength',
+    'maxPostLength',
     'autoCloseTab',
     'showFloatingHud',
     'apiKey',
-    'cloudModel'
+    'cloudModel',
+    'customApi'
   ]);
 
   const currentEngine = settings.engine || 'cloud_api';
   setEngineUI(currentEngine);
 
-if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
+  if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
   if (settings.defaultPostStyle && defaultPostStyleSelect) defaultPostStyleSelect.value = settings.defaultPostStyle;
   if (settings.defaultPostStyle && postStyleSelect) postStyleSelect.value = settings.defaultPostStyle;
   if (settings.customInstructions !== undefined) customInstructionsEl.value = settings.customInstructions;
+
+  const initReplyLen = clampLengthValue(settings.maxReplyLength, 280);
+  const initPostLen = clampLengthValue(settings.maxPostLength, 280);
+  currentMaxPostLength = initPostLen;
+  if (maxReplyLengthInput) maxReplyLengthInput.value = initReplyLen;
+  if (maxPostLengthInput) maxPostLengthInput.value = initPostLen;
+  syncLengthPresetButtons(replyPresetBtns, initReplyLen);
+  syncLengthPresetButtons(postPresetBtns, initPostLen);
+  updateCharCount();
+
+  applyCustomApiFields(settings.customApi || CUSTOM_API_PRESETS.openai);
+
   if (settings.autoCloseTab !== undefined) autoCloseToggle.checked = settings.autoCloseTab;
   if (floatingHudToggle) {
     floatingHudToggle.checked = settings.showFloatingHud !== false;
@@ -101,7 +199,13 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
   if (settings.apiKey && cloudApiKeyInput) cloudApiKeyInput.value = settings.apiKey;
   if (cloudModelSelect) {
     let savedModel = settings.cloudModel || 'gemini-3.5-flash-lite';
-    if (/gemma|1\.5|2\.0|2\.5-flash-lite/i.test(savedModel)) {
+    if (/2\.5-pro/i.test(savedModel)) {
+      savedModel = 'gemini-4-argon';
+      await chrome.storage.local.set({ cloudModel: savedModel });
+    } else if (/3\.5-flash(?!-lite)|3\.6-flash|3\.7-flash/i.test(savedModel)) {
+      savedModel = 'gemini-4-hydrogen';
+      await chrome.storage.local.set({ cloudModel: savedModel });
+    } else if (/gemma|1\.5|2\.0|2\.5-flash/i.test(savedModel)) {
       savedModel = 'gemini-3.5-flash-lite';
       await chrome.storage.local.set({ cloudModel: savedModel });
     }
@@ -140,21 +244,31 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
       rowAutoclose.style.display = 'flex';
       sessionTitle.textContent = 'Gemini Web Tab Status';
       if (cloudApiConfig) cloudApiConfig.style.display = 'none';
+      if (customApiConfigEl) customApiConfigEl.style.display = 'none';
     } else if (engineValue === 'cloud_api') {
       btnOpenGemini.style.display = 'none';
       rowAutoclose.style.display = 'none';
       sessionTitle.textContent = 'Google Gemini Cloud API Status';
       if (cloudApiConfig) cloudApiConfig.style.display = 'block';
+      if (customApiConfigEl) customApiConfigEl.style.display = 'none';
+    } else if (engineValue === 'custom_api') {
+      btnOpenGemini.style.display = 'none';
+      rowAutoclose.style.display = 'none';
+      sessionTitle.textContent = 'Custom API Endpoint Status';
+      if (cloudApiConfig) cloudApiConfig.style.display = 'none';
+      if (customApiConfigEl) customApiConfigEl.style.display = 'flex';
     } else if (engineValue === 'headless') {
       btnOpenGemini.style.display = 'none';
       rowAutoclose.style.display = 'none';
       sessionTitle.textContent = 'Headless Cookie Status';
       if (cloudApiConfig) cloudApiConfig.style.display = 'none';
+      if (customApiConfigEl) customApiConfigEl.style.display = 'none';
     } else {
       btnOpenGemini.style.display = 'none';
       rowAutoclose.style.display = 'none';
       sessionTitle.textContent = 'Gemini Nano (Local AI) Status';
       if (cloudApiConfig) cloudApiConfig.style.display = 'none';
+      if (customApiConfigEl) customApiConfigEl.style.display = 'none';
     }
   }
 
@@ -182,9 +296,224 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
     });
   }
 
-  const DEFAULT_CUSTOM_INSTRUCTIONS = 'Keep output concise, under 260 characters. No hashtags. No quotation marks. Be natural, authentic, and human.';
+  const DEFAULT_CUSTOM_INSTRUCTIONS = 'Keep output concise. No hashtags. No quotation marks. Be natural, authentic, and human.';
   const btnSaveInstructions = document.getElementById('btn-save-instructions');
   const btnResetInstructions = document.getElementById('btn-reset-instructions');
+
+  // Max Length Preferences Handlers
+  async function saveLengthSetting(key, rawValue) {
+    const clamped = clampLengthValue(rawValue, 280);
+    await chrome.storage.local.set({ [key]: clamped });
+    if (key === 'maxReplyLength') {
+      if (maxReplyLengthInput) maxReplyLengthInput.value = clamped;
+      syncLengthPresetButtons(replyPresetBtns, clamped);
+    } else {
+      currentMaxPostLength = clamped;
+      if (maxPostLengthInput) maxPostLengthInput.value = clamped;
+      syncLengthPresetButtons(postPresetBtns, clamped);
+      updateCharCount();
+    }
+    flashSaved();
+  }
+
+  let replyLenTimer = null;
+  if (maxReplyLengthInput) {
+    maxReplyLengthInput.addEventListener('input', () => {
+      if (replyLenTimer) clearTimeout(replyLenTimer);
+      replyLenTimer = setTimeout(() => saveLengthSetting('maxReplyLength', maxReplyLengthInput.value), 350);
+    });
+    maxReplyLengthInput.addEventListener('change', () => saveLengthSetting('maxReplyLength', maxReplyLengthInput.value));
+  }
+
+  let postLenTimer = null;
+  if (maxPostLengthInput) {
+    maxPostLengthInput.addEventListener('input', () => {
+      if (postLenTimer) clearTimeout(postLenTimer);
+      postLenTimer = setTimeout(() => saveLengthSetting('maxPostLength', maxPostLengthInput.value), 350);
+    });
+    maxPostLengthInput.addEventListener('change', () => saveLengthSetting('maxPostLength', maxPostLengthInput.value));
+  }
+
+  replyPresetBtns.forEach(btn => {
+    btn.addEventListener('click', () => saveLengthSetting('maxReplyLength', btn.dataset.val));
+  });
+
+  postPresetBtns.forEach(btn => {
+    btn.addEventListener('click', () => saveLengthSetting('maxPostLength', btn.dataset.val));
+  });
+
+  // Custom API Configuration Handlers
+  let customApiSaveTimer = null;
+  function scheduleCustomApiSave(refreshStatus = false) {
+    if (customApiSaveTimer) clearTimeout(customApiSaveTimer);
+    customApiSaveTimer = setTimeout(async () => {
+      const cfg = readCustomApiForm();
+      await chrome.storage.local.set({ customApi: cfg });
+      flashSaved();
+      if (refreshStatus) checkStatus();
+    }, 400);
+  }
+
+  if (customApiPresetSelect) {
+    customApiPresetSelect.addEventListener('change', async () => {
+      const presetKey = customApiPresetSelect.value;
+      const preset = CUSTOM_API_PRESETS[presetKey];
+      if (preset && presetKey !== 'custom') {
+        if (customApiFormatSelect) customApiFormatSelect.value = preset.format;
+        if (customApiUrlInput) customApiUrlInput.value = preset.baseUrl;
+        if (customApiModelInput) customApiModelInput.value = preset.model;
+      }
+      const cfg = readCustomApiForm();
+      await chrome.storage.local.set({ customApi: cfg });
+      flashSaved();
+      checkStatus();
+    });
+  }
+
+  if (customApiFormatSelect) {
+    customApiFormatSelect.addEventListener('change', () => scheduleCustomApiSave(true));
+  }
+  if (customApiUrlInput) {
+    customApiUrlInput.addEventListener('input', () => scheduleCustomApiSave(true));
+  }
+  if (customApiKeyInput) {
+    customApiKeyInput.addEventListener('input', () => scheduleCustomApiSave(true));
+  }
+  if (customApiModelInput) {
+    customApiModelInput.addEventListener('input', () => scheduleCustomApiSave(true));
+  }
+  if (customApiHeadersInput) {
+    customApiHeadersInput.addEventListener('input', () => scheduleCustomApiSave(false));
+  }
+
+  if (btnToggleCustomKey && customApiKeyInput) {
+    btnToggleCustomKey.addEventListener('click', () => {
+      const isPassword = customApiKeyInput.type === 'password';
+      customApiKeyInput.type = isPassword ? 'text' : 'password';
+      btnToggleCustomKey.textContent = isPassword ? '🙈' : '👁️';
+    });
+  }
+
+  if (btnFetchCustomModels) {
+    btnFetchCustomModels.addEventListener('click', async () => {
+      const cfg = readCustomApiForm();
+      if (!cfg.baseUrl) {
+        if (customApiStatus) {
+          customApiStatus.className = 'cloud-status-text error';
+          customApiStatus.textContent = 'Enter Base URL first.';
+        }
+        return;
+      }
+
+      btnFetchCustomModels.disabled = true;
+      if (customApiStatus) {
+        customApiStatus.className = 'cloud-status-text loading';
+        customApiStatus.textContent = 'Fetching models...';
+      }
+
+      try {
+        const granted = await requestCustomApiOriginPermission(cfg.baseUrl);
+        if (!granted) {
+          if (customApiStatus) {
+            customApiStatus.className = 'cloud-status-text error';
+            customApiStatus.textContent = 'Host permission declined.';
+          }
+          return;
+        }
+        await chrome.storage.local.set({ customApi: cfg });
+        const resp = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'FETCH_CUSTOM_API_MODELS', payload: cfg }, resolve);
+        });
+        if (resp?.success && Array.isArray(resp.models) && resp.models.length > 0) {
+          if (customApiModelsDatalist) {
+            customApiModelsDatalist.innerHTML = '';
+            resp.models.forEach(modelId => {
+              const opt = document.createElement('option');
+              opt.value = modelId;
+              customApiModelsDatalist.appendChild(opt);
+            });
+          }
+          if (!cfg.model && customApiModelInput) {
+            customApiModelInput.value = resp.models[0];
+            await chrome.storage.local.set({ customApi: readCustomApiForm() });
+          }
+          if (customApiStatus) {
+            customApiStatus.className = 'cloud-status-text success';
+            customApiStatus.textContent = `✓ Loaded ${resp.models.length} models`;
+          }
+        } else {
+          if (customApiStatus) {
+            customApiStatus.className = 'cloud-status-text error';
+            customApiStatus.textContent = resp?.message || 'No models returned.';
+          }
+        }
+      } catch (err) {
+        if (customApiStatus) {
+          customApiStatus.className = 'cloud-status-text error';
+          customApiStatus.textContent = `❌ ${err.message}`;
+        }
+      } finally {
+        btnFetchCustomModels.disabled = false;
+      }
+    });
+  }
+
+  if (btnTestCustomApi) {
+    btnTestCustomApi.addEventListener('click', async () => {
+      const cfg = readCustomApiForm();
+      if (!cfg.baseUrl || !cfg.model) {
+        if (customApiStatus) {
+          customApiStatus.className = 'cloud-status-text error';
+          customApiStatus.textContent = 'Enter Endpoint URL and Model name.';
+        }
+        return;
+      }
+
+      btnTestCustomApi.disabled = true;
+      if (customApiStatus) {
+        customApiStatus.className = 'cloud-status-text loading';
+        customApiStatus.textContent = 'Testing endpoint...';
+      }
+
+      try {
+        const granted = await requestCustomApiOriginPermission(cfg.baseUrl);
+        if (!granted) {
+          if (customApiStatus) {
+            customApiStatus.className = 'cloud-status-text error';
+            customApiStatus.textContent = '❌ Origin permission denied.';
+          }
+          return;
+        }
+
+        await chrome.storage.local.set({ customApi: cfg });
+
+        const resp = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: 'VALIDATE_CUSTOM_API', payload: cfg }, resolve);
+        });
+
+        if (resp && resp.valid) {
+          if (customApiStatus) {
+            customApiStatus.className = 'cloud-status-text success';
+            customApiStatus.textContent = resp.message || '✓ Connected!';
+          }
+          flashSaved();
+          checkStatus();
+        } else {
+          if (customApiStatus) {
+            customApiStatus.className = 'cloud-status-text error';
+            customApiStatus.textContent = `❌ ${resp?.message || 'Connection failed.'}`;
+          }
+        }
+      } catch (err) {
+        if (customApiStatus) {
+          customApiStatus.className = 'cloud-status-text error';
+          customApiStatus.textContent = `❌ ${err.message}`;
+        }
+      } finally {
+        btnTestCustomApi.disabled = false;
+      }
+    });
+  }
 
   let saveTimer = null;
   customInstructionsEl.addEventListener('input', () => {
@@ -456,8 +785,8 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
   function updateCharCount() {
     if (!postOutputText || !postCharCount) return;
     const len = postOutputText.innerText.trim().length;
-    postCharCount.textContent = `${len} / 280`;
-    if (len > 280) {
+    postCharCount.textContent = `${len} / ${currentMaxPostLength}`;
+    if (len > currentMaxPostLength) {
       postCharCount.classList.add('over-limit');
     } else {
       postCharCount.classList.remove('over-limit');
@@ -489,7 +818,7 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
       if (postOutputActions) postOutputActions.style.display = 'none';
       if (postCharCount) {
         postCharCount.classList.remove('over-limit');
-        postCharCount.textContent = '... / 280';
+        postCharCount.textContent = `... / ${currentMaxPostLength}`;
       }
 
       try {
@@ -521,7 +850,7 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
           }
           if (postOutputText) postOutputText.style.display = 'none';
           if (postOutputActions) postOutputActions.style.display = 'none';
-          if (postCharCount) postCharCount.textContent = '0 / 280';
+          if (postCharCount) postCharCount.textContent = `0 / ${currentMaxPostLength}`;
         }
       } catch (err) {
         if (postOutputError) {
@@ -530,7 +859,7 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
         }
         if (postOutputText) postOutputText.style.display = 'none';
         if (postOutputActions) postOutputActions.style.display = 'none';
-        if (postCharCount) postCharCount.textContent = '0 / 280';
+        if (postCharCount) postCharCount.textContent = `0 / ${currentMaxPostLength}`;
       } finally {
         btnGeneratePost.disabled = false;
         if (btnGeneratePostText) btnGeneratePostText.textContent = 'Generate Tweet ✦';
@@ -681,6 +1010,25 @@ if (settings.defaultTone) defaultToneSelect.value = settings.defaultTone;
     }
     if (changes.autoCloseTab && autoCloseToggle) {
       autoCloseToggle.checked = changes.autoCloseTab.newValue !== false;
+    }
+    if (changes.maxReplyLength) {
+      const nextReplyLen = clampLengthValue(changes.maxReplyLength.newValue, 280);
+      if (maxReplyLengthInput && document.activeElement !== maxReplyLengthInput) {
+        maxReplyLengthInput.value = nextReplyLen;
+      }
+      syncLengthPresetButtons(replyPresetBtns, nextReplyLen);
+    }
+    if (changes.maxPostLength) {
+      const nextPostLen = clampLengthValue(changes.maxPostLength.newValue, 280);
+      currentMaxPostLength = nextPostLen;
+      if (maxPostLengthInput && document.activeElement !== maxPostLengthInput) {
+        maxPostLengthInput.value = nextPostLen;
+      }
+      syncLengthPresetButtons(postPresetBtns, nextPostLen);
+      updateCharCount();
+    }
+    if (changes.customApi && changes.customApi.newValue) {
+      applyCustomApiFields(changes.customApi.newValue);
     }
   });
 

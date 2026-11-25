@@ -3,6 +3,23 @@
 All notable changes to **Twitter AI Auto Reply & Post Creator** are documented in this file.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-11-25
+
+### Added & Updated
+- **Refreshed Extension & Popup Icons (`icons/icon-*.png`, `popup/popup.html`, `popup/popup.css`)**: Replaced the legacy circular blue star icon and popup CSS `✦` badge with the new Neon Glass `X✦` squircle monogram (transparent background, `#1d9bf0 → #8a2be2` ring and ribbon gradient, crisp 16×16 / 48×48 / 128×128 exports).
+- **Updated Floating HUD Branding (`content_twitter.js`)**: Renamed the expanded Floating HUD header from `Gemini Assistant` to **`X AI Assistant`** and the collapsed HUD pill from `Gemini AI` to **`X AI`** so the on-page UI aligns cleanly with multi-engine support (Nano, Cloud, Custom API, Headless, Web).
+- **Updated Gemini Cloud API Model Lineup & Config (`popup/popup.html`, `popup/popup.js`, `background.js`)**:
+  - Replaced deprecated/legacy models (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-3.6-flash`, `gemini-3.8-flash` dropdown entries) with current official models: **`gemini-3.5-flash-lite`** (Recommended Free Tier), **`gemini-4-hydrogen`**, **`gemini-4-argon`**, **`gemini-4-neon`** (Paid Tier), and **`gemini-4-carbon`**.
+  - Added `normalizeCloudModel()` auto-migration from legacy `2.5`/`3.6` models, `buildThinkingConfigForModel()` (`thinkingLevel: 'LOW'` on Gemini 4, `'MINIMAL'` on `gemini-3.5-flash-lite`), and `buildCloudGenerationConfig()` omitting deprecated `temperature` on Gemini 4 & 3.5 Flash-Lite.
+- **Custom API Engine (`custom_api`) (`manifest.json`, `background.js`, `popup/`, `content_twitter.js`)**:
+  - Added full support for user-configured OpenAI-compatible (`/chat/completions`) and Anthropic-compatible (`/messages`) endpoints with quick presets for **OpenAI**, **OpenRouter**, **Groq**, **DeepSeek**, **xAI (Grok)**, **Anthropic (Claude)**, **Ollama (Local)**, **LM Studio (Local)**, and **Custom Endpoint**.
+  - Added least-privilege MV3 `optional_host_permissions` requested strictly per-origin on Save/Verify, remote HTTPS enforcement (allowing HTTP on `localhost` / `127.0.0.1`), optional API keys for local LLMs (requiring a key or custom auth headers on remote endpoints with accurate `Key Missing` / `Permission Needed` status badges), optional custom JSON headers, `/models` auto-discovery, `<think>` reasoning tag stripping, clean `console.warn` handling for expected auth/key errors (keeping `chrome://extensions` Errors clean), and resilient fallback integration.
+  - Added a `Custom` engine quick-switch chip in the on-screen Floating HUD and dynamic engine-matched status/error toasts (`✦ Generating reply with <Active Engine>...`).
+- **Independent Reply & Post Max Length Controls (`background.js`, `popup/`, `content_twitter.js`)**:
+  - Added separate **`Reply Max`** (`maxReplyLength`) and **`Post Max`** (`maxPostLength`) settings (`20–4000` characters, default `280`) with quick presets (`140`, `280`, `500`, `1000`, `2000`) in Popup Preferences and synchronized numeric inputs in the Floating HUD.
+  - Added `resolveEffectiveMaxLength()`, `stripConflictingLengthClause()`, and dynamic `computeOutputTokenBudget()` scaling so long-form X Premium replies and posts never truncate mid-sentence and Popup Post Creator's live character counter dynamically adapts (`len / maxPostLength`).
+  - Automatically migrates legacy default `"under 260 characters."` instructions on upgrade so dedicated length settings always take clean precedence.
+
 ## [1.5.0] - 2026-11-25
 
 ### Added

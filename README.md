@@ -13,7 +13,7 @@ You can choose your preferred engine anytime with one click in the extension pop
 1. **☁️ Google Gemini Cloud API (Ultra-Fast & Free)** *(Recommended)*:
    - **0 tabs opened**.
    - Direct official REST integration with Google Generative Language API.
-   - Ultra-fast response times powered by **`gemini-3.5-flash-lite`** (also supports `gemini-3.6-flash`, `gemini-3.8-flash`, `gemini-2.5-flash`, and `gemini-2.5-pro`).
+   - Ultra-fast response times powered by **`gemini-3.5-flash-lite`** (also supports `gemini-4-hydrogen`, `gemini-4-argon`, `gemini-4-neon`, and `gemini-4-carbon`).
    - Uses a **100% free** API key from [Google AI Studio](https://aistudio.google.com/app/apikey) (no billing or credit card required).
    - Built-in connection testing & key verification right from the popup.
 
@@ -22,12 +22,17 @@ You can choose your preferred engine anytime with one click in the extension pop
    - Runs directly inside Chrome using your computer's local hardware (GPU/NPU).
    - 100% private, works offline, and generates replies in under a second.
 
-3. **🌐 Headless Web (Google Cookie Session)**:
+3. **🔌 Custom API (Any OpenAI / Anthropic / Local LLM)**:
+   - **0 tabs opened**.
+   - Connect your own API endpoint: OpenAI, OpenRouter, Groq, DeepSeek, xAI (Grok), Anthropic (Claude), custom proxies, or local self-hosted servers (**Ollama**, **LM Studio**, vLLM).
+   - Requests only the exact endpoint origin permission on demand (`optional_host_permissions`), supports optional API keys for local LLMs, and includes one-click model discovery (`/models`) & connection verification.
+
+4. **🌐 Headless Web (Google Cookie Session)**:
    - **0 tabs opened**.
    - Sends silent background requests directly using your active Google login session cookies.
    - No API keys or setup required.
 
-4. **🗂️ Gemini Web Tab (DOM Automation)**:
+5. **🗂️ Gemini Web Tab (DOM Automation)**:
    - Automates the real [gemini.google.com/app](https://gemini.google.com/app) chat interface.
    - Includes an **Auto-close tab** toggle so temporary background tabs vanish automatically once the reply is pasted.
    - Ideal fallback for full web model reasoning.
@@ -88,8 +93,9 @@ Before using **Option 2 (Gemini Nano)**, verify if your Chrome browser supports 
 ## 🖥️ On-Screen Floating HUD Widget
 
 While browsing [x.com](https://x.com), a sleek floating widget provides instant control without opening the popup:
-- **Engine Status Chips**: Live status and quick-switch pills for all 4 engines (`Nano`, `Cloud API`, `Headless`, and `Web`).
-- **Custom Prompt Instructions**: Expanded on-screen multiline editor to define your AI personality, tone, or negative constraints (e.g., *"no emojis"*, *"keep under 180 chars"*).
+- **Engine Status Chips**: Live status and quick-switch pills for all 5 engines (`Nano`, `Cloud`, `Custom`, `Headless`, and `Web`).
+- **Independent Reply & Post Max Length**: Set separate character limits (`20–4000` chars) for replies and standalone posts directly in the popup or Floating HUD without editing your custom prompt.
+- **Custom Prompt Instructions**: Expanded on-screen multiline editor to define your AI personality, tone, or negative constraints (e.g., *"no emojis"*, *"founder voice"*).
 - **Tone Switcher**: Instant access to reply tones and tweet archetypes.
 - **Quick Post Drafter**: Draft and polish tweets from anywhere on the timeline.
 - **Draggable & Collapsible**: Drag anywhere on screen or minimize to a compact badge.

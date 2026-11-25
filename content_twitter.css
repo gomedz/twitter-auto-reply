@@ -550,9 +550,9 @@
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: 3px 8px !important;
+  padding: 3px 7px !important;
   border-radius: 9999px !important;
-  font-size: 11px !important;
+  font-size: 10.5px !important;
   font-weight: 700 !important;
   letter-spacing: 0.2px !important;
   flex-shrink: 0 !important;
@@ -586,6 +586,13 @@
   background: rgba(99, 102, 241, 0.4) !important;
   border-color: rgba(99, 102, 241, 0.75) !important;
   box-shadow: 0 0 10px rgba(99, 102, 241, 0.3) !important;
+}
+
+.gemini-hud-engine-chip.active.custom-active,
+.gemini-hud-engine-chip[data-engine="custom_api"].active {
+  background: rgba(20, 184, 166, 0.35) !important;
+  border-color: rgba(20, 184, 166, 0.75) !important;
+  box-shadow: 0 0 10px rgba(20, 184, 166, 0.28) !important;
 }
 
 .gemini-hud-engine-chip.active.headless-active {
@@ -673,7 +680,7 @@
 .gemini-hud-card {
   display: flex;
   flex-direction: column;
-  width: 338px;
+  width: 356px;
   background: rgba(22, 24, 28, 0.96);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -813,6 +820,53 @@
 .gemini-hud-select option {
   background: #16181c;
   color: #ffffff;
+}
+
+/* Max Length Controls in HUD */
+.gemini-hud-lengths-row {
+  display: flex;
+  gap: 8px;
+}
+
+.gemini-hud-length-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+.gemini-hud-length-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.gemini-hud-length-input {
+  width: 48px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 4px;
+  text-align: right;
+  outline: none;
+  font-family: inherit;
+}
+
+.gemini-hud-length-input:focus {
+  border-color: #1d9bf0;
+}
+
+.gemini-hud-length-unit {
+  font-size: 10px;
+  color: #71767b;
 }
 
 /* Custom Prompt Instructions */
@@ -1019,6 +1073,15 @@
 :root.gemini-x-light .gemini-hud-select option {
   background: #ffffff;
   color: #0f1419;
+}
+:root.gemini-x-light .gemini-hud-length-field {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+:root.gemini-x-light .gemini-hud-length-input {
+  background: #f7f9f9;
+  color: #0f1419;
+  border-color: #cfd9de;
 }
 :root.gemini-x-light .gemini-hud-instructions {
   background: rgba(0, 0, 0, 0.02);

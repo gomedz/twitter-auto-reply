@@ -11,10 +11,10 @@
     <!-- Header -->
     <header class="header">
       <div class="brand">
-        <div class="brand-icon">✦</div>
+        <img src="../icons/icon-48.png" alt="Twitter AI Assistant" class="brand-icon-img">
         <div class="brand-info">
           <h1>Twitter AI Assistant</h1>
-          <span class="version-tag">Reply & Post Creator &bull; Nano &amp; Cloud API</span>
+          <span class="version-tag">Reply &amp; Post Creator &bull; v2.0.0</span>
         </div>
       </div>
       <div id="status-badge" class="status-badge checking" title="Click to refresh">
@@ -54,6 +54,17 @@
                 <span class="badge badge-recommended">Recommended &bull; Ultra Fast</span>
               </div>
               <p class="engine-desc">Official Google Gemini API via free key. Instant &amp; 100% reliable.</p>
+            </div>
+          </label>
+
+          <label class="engine-option" id="opt-customapi">
+            <input type="radio" name="engine" value="custom_api">
+            <div class="engine-content">
+              <div class="engine-header">
+                <span class="engine-name">🔌 Custom API</span>
+                <span class="badge badge-custom">Any LLM &bull; OpenAI / Local</span>
+              </div>
+              <p class="engine-desc">Use OpenAI, OpenRouter, Groq, DeepSeek, Anthropic, or local Ollama/LM Studio.</p>
             </div>
           </label>
 
@@ -111,11 +122,11 @@
         <div class="form-group">
           <label for="cloud-model-select">Model Version</label>
           <select id="cloud-model-select" class="form-select">
-            <option value="gemini-3.5-flash-lite" selected>Gemini 3.5 Flash-Lite (Recommended - Ultra Fast &amp; High Quota)</option>
-            <option value="gemini-3.6-flash">Gemini 3.6 Flash (Balanced Speed &amp; Intelligence)</option>
-            <option value="gemini-3.8-flash">Gemini 3.8 Flash (Latest Flagship Flash)</option>
-            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Legacy Standard)</option>
-            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Reasoning)</option>
+            <option value="gemini-3.5-flash-lite" selected>Gemini 3.5 Flash-Lite (Recommended - Ultra Fast &amp; Free Tier)</option>
+            <option value="gemini-4-hydrogen">Gemini 4 Hydrogen (Fast &amp; Balanced Daily Driver)</option>
+            <option value="gemini-4-argon">Gemini 4 Argon (Efficient Frontier Reasoning)</option>
+            <option value="gemini-4-neon">Gemini 4 Neon (Fast Frontier - Paid Tier)</option>
+            <option value="gemini-4-carbon">Gemini 4 Carbon (Maximum Reasoning Depth)</option>
           </select>
         </div>
 
@@ -124,6 +135,75 @@
             <span>Verify API Key</span>
           </button>
           <span id="cloud-key-status" class="cloud-status-text"></span>
+        </div>
+      </section>
+
+      <!-- Custom API Configuration Card -->
+      <section class="card custom-api-card" id="custom-api-config" style="display: none;">
+        <div class="section-title">Custom API Configuration</div>
+
+        <div class="custom-api-row">
+          <div class="form-group">
+            <label for="custom-api-preset">Provider Preset</label>
+            <select id="custom-api-preset" class="form-select">
+              <option value="openai">OpenAI</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="groq">Groq</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="xai">xAI (Grok)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+              <option value="ollama">Ollama (Local)</option>
+              <option value="lmstudio">LM Studio (Local)</option>
+              <option value="custom">Custom Endpoint</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="custom-api-format">Protocol</label>
+            <select id="custom-api-format" class="form-select">
+              <option value="openai">OpenAI (/chat/completions)</option>
+              <option value="anthropic">Anthropic (/messages)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="custom-api-url">Base / Endpoint URL</label>
+          <input type="url" id="custom-api-url" class="form-input" placeholder="https://api.openai.com/v1" spellcheck="false" autocomplete="off">
+        </div>
+
+        <div class="form-group">
+          <div class="label-with-link">
+            <label for="custom-api-key">API Key</label>
+            <span class="helper-muted">Optional for local servers</span>
+          </div>
+          <div class="input-password-wrapper">
+            <input type="password" id="custom-api-key" class="form-input" placeholder="sk-... (optional for Ollama)" spellcheck="false" autocomplete="off">
+            <button type="button" id="btn-toggle-custom-key" class="btn-toggle-eye" title="Show/Hide Key">👁️</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="custom-api-model">Model Name</label>
+          <div class="custom-api-model-wrap">
+            <input type="text" id="custom-api-model" class="form-input" list="custom-api-models-list" placeholder="e.g. gpt-4o-mini or llama3.2" spellcheck="false" autocomplete="off">
+            <datalist id="custom-api-models-list"></datalist>
+            <button type="button" id="btn-fetch-custom-models" class="btn btn-secondary btn-sm" title="Fetch models from /models">↻ Models</button>
+          </div>
+        </div>
+
+        <details class="custom-api-advanced">
+          <summary>Advanced: Custom Headers (Optional JSON)</summary>
+          <div class="form-group" style="margin-top: 6px;">
+            <textarea id="custom-api-headers" class="form-textarea" rows="2" placeholder='{"X-Title": "Twitter AI Assistant"}' spellcheck="false"></textarea>
+          </div>
+        </details>
+
+        <div class="cloud-actions">
+          <button type="button" id="btn-test-custom-api" class="btn btn-secondary btn-sm">
+            <span>Verify &amp; Save</span>
+          </button>
+          <span id="custom-api-status" class="cloud-status-text"></span>
         </div>
       </section>
 
@@ -156,6 +236,44 @@
             <option value="question">❓ Discussion Starter</option>
             <option value="thread">🧵 Thread Opener</option>
           </select>
+        </div>
+
+        <!-- Max Text Length Controls -->
+        <div class="form-group">
+          <label>Max Text Length (Characters)</label>
+          <div class="length-controls-grid">
+            <div class="length-control-box">
+              <div class="length-box-header">
+                <span>Reply Max</span>
+                <div class="length-input-wrap">
+                  <input type="number" id="max-reply-length" class="length-number-input" min="20" max="4000" step="10" value="280">
+                  <span class="length-unit">ch</span>
+                </div>
+              </div>
+              <div class="length-presets" data-target="reply">
+                <button type="button" class="length-preset-btn" data-val="140">140</button>
+                <button type="button" class="length-preset-btn active" data-val="280">280</button>
+                <button type="button" class="length-preset-btn" data-val="500">500</button>
+                <button type="button" class="length-preset-btn" data-val="1000">1000</button>
+              </div>
+            </div>
+
+            <div class="length-control-box">
+              <div class="length-box-header">
+                <span>Post Max</span>
+                <div class="length-input-wrap">
+                  <input type="number" id="max-post-length" class="length-number-input" min="20" max="4000" step="10" value="280">
+                  <span class="length-unit">ch</span>
+                </div>
+              </div>
+              <div class="length-presets" data-target="post">
+                <button type="button" class="length-preset-btn" data-val="140">140</button>
+                <button type="button" class="length-preset-btn active" data-val="280">280</button>
+                <button type="button" class="length-preset-btn" data-val="500">500</button>
+                <button type="button" class="length-preset-btn" data-val="2000">2000</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Custom Instructions -->

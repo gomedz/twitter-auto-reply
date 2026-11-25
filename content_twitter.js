@@ -489,6 +489,59 @@ async function insertTextIntoEditor(editor, rawText) {
   return !!updatedContent && (updatedContent === text.trim() || updatedContent.includes(textSample));
 }
 
+// Resolve human-readable label for the currently selected engine
+async function getActiveEngineDisplayInfo() {
+  try {
+    const s = await chrome.storage.local.get(['engine', 'cloudModel', 'customApi']);
+    const engine = s?.engine || 'cloud_api';
+    if (engine === 'nano') {
+      return { toastLabel: 'Gemini Nano', btnLabel: 'Nano...' };
+    }
+    if (engine === 'cloud_api') {
+      const model = (s?.cloudModel || '').trim();
+      return {
+        toastLabel: model ? `Cloud API (${model})` : 'Gemini Cloud API',
+        btnLabel: 'Cloud API...'
+      };
+    }
+    if (engine === 'custom_api') {
+      const model = (s?.customApi?.model || '').trim();
+      return {
+        toastLabel: model ? `Custom API (${model})` : 'Custom API',
+        btnLabel: 'Custom API...'
+      };
+    }
+    if (engine === 'headless') {
+      return { toastLabel: 'Headless Web', btnLabel: 'Headless...' };
+    }
+    return { toastLabel: 'Gemini Web Tab', btnLabel: 'Web Tab...' };
+  } catch (e) {
+    return { toastLabel: 'AI', btnLabel: 'AI...' };
+  }
+}
+
+function showGenerationErrorToast(response, engineToastLabel, fallbackMsg) {
+  const errorMsg = response?.message || fallbackMsg || 'Generation failed.';
+  const isAuthIssue = response?.error === 'NOT_LOGGED_IN' ||
+                      response?.error === 'NO_TAB' ||
+                      /not logged in|session token|log in|no gemini tab/i.test(errorMsg);
+  const isApiKeyIssue = response?.error === 'API_KEY_ERROR' ||
+                        (response?.error !== 'CUSTOM_API_ERROR' && /api key|api_key/i.test(errorMsg));
+
+  if (isAuthIssue) {
+    showToast('Please log in to Gemini at gemini.google.com', 'error', {
+      text: 'Open Gemini',
+      onClick: () => sendRuntimeMessage({ type: 'OPEN_GEMINI' }).catch(() => {})
+    });
+  } else if (isApiKeyIssue) {
+    showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
+  } else if (response?.error === 'PERMISSION_ERROR' || response?.error === 'CUSTOM_API_ERROR') {
+    showToast(errorMsg, 'error');
+  } else {
+    showToast(`${engineToastLabel} error: ${errorMsg}`, 'error');
+  }
+}
+
 // Handle generating reply for a selected tone
 async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
   if (!containerEl || containerEl.dataset.busy === 'true' || containerEl.classList.contains('loading')) return;
@@ -509,12 +562,13 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
     return;
   }
 
+  const engineInfo = await getActiveEngineDisplayInfo();
   const originalHtml = actionBtnEl.innerHTML;
   containerEl.classList.add('loading');
-  actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ Gemini...</span>`;
+  actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ ${engineInfo.btnLabel}</span>`;
 
   const startTime = Date.now();
-  showToast('✦ Generating reply with Gemini...', 'info');
+  showToast(`✦ Generating reply with ${engineInfo.toastLabel}...`, 'info');
 
   try {
     const response = await sendRuntimeMessage({
@@ -527,23 +581,7 @@ async function triggerAutoReply(containerEl, actionBtnEl, toneId, composerEl) {
     });
 
     if (!response || !response.success) {
-      const errorMsg = response?.message || 'Failed to generate reply.';
-      const isAuthIssue = response?.error === 'NOT_LOGGED_IN' ||
-                          response?.error === 'NO_TAB' ||
-                          /not logged in|session token|log in|no gemini tab/i.test(errorMsg);
-      const isApiKeyIssue = response?.error === 'API_KEY_ERROR' ||
-                            /api key|api_key/i.test(errorMsg);
-
-      if (isAuthIssue) {
-        showToast('Please log in to Gemini at gemini.google.com', 'error', {
-          text: 'Open Gemini',
-          onClick: () => sendRuntimeMessage({ type: 'OPEN_GEMINI' }).catch(() => {})
-        });
-      } else if (isApiKeyIssue) {
-        showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
-      } else {
-        showToast(`Gemini error: ${errorMsg}`, 'error');
-      }
+      showGenerationErrorToast(response, engineInfo.toastLabel, 'Failed to generate reply.');
       return;
     }
 
@@ -772,14 +810,15 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
   const topicOrDraft = customTopic || currentDraft || quoteContext.text;
   const isDraft = !customTopic && !!currentDraft;
 
+  const engineInfo = await getActiveEngineDisplayInfo();
   const originalHtml = actionBtnEl.innerHTML;
   containerEl.classList.add('loading');
-  actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ Gemini...</span>`;
+  actionBtnEl.innerHTML = `<span class="gemini-spinner"></span> <span>✦ ${engineInfo.btnLabel}</span>`;
 
   showToast(
     isQuoteMode
-      ? '✦ Generating quote tweet with Gemini...'
-      : (isDraft ? '✦ Polishing tweet draft with Gemini...' : '✦ Generating post with Gemini...'),
+      ? `✦ Generating quote tweet with ${engineInfo.toastLabel}...`
+      : (isDraft ? `✦ Polishing tweet draft with ${engineInfo.toastLabel}...` : `✦ Generating post with ${engineInfo.toastLabel}...`),
     'info'
   );
 
@@ -797,23 +836,7 @@ async function triggerAutoPost(containerEl, actionBtnEl, styleId, composerToolba
     });
 
     if (!response || !response.success) {
-      const errorMsg = response?.message || 'Failed to generate post.';
-      const isAuthIssue = response?.error === 'NOT_LOGGED_IN' ||
-                          response?.error === 'NO_TAB' ||
-                          /not logged in|session token|log in|no gemini tab/i.test(errorMsg);
-      const isApiKeyIssue = response?.error === 'API_KEY_ERROR' ||
-                            /api key|api_key/i.test(errorMsg);
-
-      if (isAuthIssue) {
-        showToast('Please log in to Gemini at gemini.google.com', 'error', {
-          text: 'Open Gemini',
-          onClick: () => sendRuntimeMessage({ type: 'OPEN_GEMINI' }).catch(() => {})
-        });
-      } else if (isApiKeyIssue) {
-        showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
-      } else {
-        showToast(`Gemini error: ${errorMsg}`, 'error');
-      }
+      showGenerationErrorToast(response, engineInfo.toastLabel, 'Failed to generate post.');
       return;
     }
 
@@ -1335,7 +1358,7 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
 
   const pillBadge = document.createElement('div');
   pillBadge.className = 'gemini-hud-pill-badge';
-  pillBadge.innerHTML = `<span class="gemini-sparkle-icon">✦</span><span class="gemini-hud-pill-text">Gemini AI</span>`;
+  pillBadge.innerHTML = `<span class="gemini-sparkle-icon">✦</span><span class="gemini-hud-pill-text">X AI</span>`;
 
   const pillDotEl = document.createElement('span');
   pillDotEl.className = 'gemini-hud-status-dot';
@@ -1355,10 +1378,11 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   pill.appendChild(expandBtn);
 
   const ENGINES = [
-    { id: 'nano',      label: 'Nano',      cls: 'nano-active' },
-    { id: 'cloud_api', label: 'Cloud API', cls: 'cloud-active' },
-    { id: 'headless',  label: 'Headless',  cls: 'headless-active' },
-    { id: 'web_tab',   label: 'Web',       cls: 'web-active' }
+    { id: 'nano',       label: 'Nano',     cls: 'nano-active' },
+    { id: 'cloud_api',  label: 'Cloud',    cls: 'cloud-active' },
+    { id: 'custom_api', label: 'Custom',   cls: 'custom-active' },
+    { id: 'headless',   label: 'Headless', cls: 'headless-active' },
+    { id: 'web_tab',    label: 'Web',      cls: 'web-active' }
   ];
   let currentEngine = 'cloud_api';
 
@@ -1372,7 +1396,7 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
     <div class="gemini-hud-drag-handle" title="Drag to move">
       <span class="gemini-hud-drag-icon">⠿</span>
       <span class="gemini-sparkle-icon">✦</span>
-      <span class="gemini-hud-title">Gemini Assistant</span>
+      <span class="gemini-hud-title">X AI Assistant</span>
     </div>
     <div class="gemini-hud-header-actions">
       <button type="button" class="gemini-hud-icon-btn" id="gemini-hud-refresh-btn" title="Refresh Engine Status">🔄</button>
@@ -1404,7 +1428,7 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   function setActiveChip(engineId) {
     currentEngine = engineId;
     engineChips.querySelectorAll('.gemini-hud-engine-chip').forEach(chip => {
-      chip.classList.remove('active', 'nano-active', 'cloud-active', 'headless-active', 'web-active');
+      chip.classList.remove('active', 'nano-active', 'cloud-active', 'custom-active', 'headless-active', 'web-active');
     });
     const activeChip = engineChips.querySelector(`[data-engine="${engineId}"]`);
     if (activeChip) {
@@ -1487,6 +1511,64 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   rowSelectors.appendChild(colTone);
   rowSelectors.appendChild(colStyle);
 
+  // Max Reply & Post Length Row
+  const lengthsRow = document.createElement('div');
+  lengthsRow.className = 'gemini-hud-lengths-row';
+  lengthsRow.innerHTML = `
+    <div class="gemini-hud-length-field">
+      <label class="gemini-hud-label" for="gemini-hud-reply-max">Reply Max</label>
+      <div class="gemini-hud-length-box">
+        <input type="number" class="gemini-hud-length-input" id="gemini-hud-reply-max" min="20" max="4000" step="10" value="280">
+        <span class="gemini-hud-length-unit">ch</span>
+      </div>
+    </div>
+    <div class="gemini-hud-length-field">
+      <label class="gemini-hud-label" for="gemini-hud-post-max">Post Max</label>
+      <div class="gemini-hud-length-box">
+        <input type="number" class="gemini-hud-length-input" id="gemini-hud-post-max" min="20" max="4000" step="10" value="280">
+        <span class="gemini-hud-length-unit">ch</span>
+      </div>
+    </div>
+  `;
+
+  const inputReplyMax = lengthsRow.querySelector('#gemini-hud-reply-max');
+  const inputPostMax = lengthsRow.querySelector('#gemini-hud-post-max');
+
+  const clampHudLength = (v) => {
+    const n = parseInt(v, 10);
+    if (isNaN(n)) return 280;
+    return Math.min(4000, Math.max(20, n));
+  };
+
+  chrome.storage.local.get(['maxReplyLength', 'maxPostLength']).then(s => {
+    if (inputReplyMax) inputReplyMax.value = clampHudLength(s?.maxReplyLength ?? 280);
+    if (inputPostMax) inputPostMax.value = clampHudLength(s?.maxPostLength ?? 280);
+  }).catch(() => {});
+
+  const bindHudLengthInput = (el, storageKey, label) => {
+    if (!el) return;
+    let timer = null;
+    const commit = async () => {
+      const clamped = clampHudLength(el.value);
+      el.value = clamped;
+      try {
+        await chrome.storage.local.set({ [storageKey]: clamped });
+        showToast(`✦ ${label} set to ${clamped} chars`, 'info');
+      } catch (e) {}
+    };
+    el.addEventListener('input', () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(commit, 450);
+    });
+    el.addEventListener('change', () => {
+      if (timer) clearTimeout(timer);
+      commit();
+    });
+  };
+
+  bindHudLengthInput(inputReplyMax, 'maxReplyLength', 'Reply max length');
+  bindHudLengthInput(inputPostMax, 'maxPostLength', 'Post max length');
+
   const instructionsBox = document.createElement('div');
   instructionsBox.className = 'gemini-hud-instructions';
   instructionsBox.innerHTML = `
@@ -1558,6 +1640,7 @@ function createFloatingHud(defaultTone, defaultPostStyle) {
   body.appendChild(statusBar);
   body.appendChild(engineRow);
   body.appendChild(rowSelectors);
+  body.appendChild(lengthsRow);
   body.appendChild(instructionsBox);
   body.appendChild(drafter);
 
@@ -1626,7 +1709,15 @@ async function updateEngineStatusBadge(hudEl) {
 
     const connected = !!(resp && resp.connected);
     const isWarning = resp?.statusText === 'Download Needed' || resp?.statusText === 'Downloading';
-    const engineName = resp?.engine === 'nano' ? 'Nano' : resp?.engine === 'cloud_api' ? 'Cloud API' : resp?.engine === 'headless' ? 'Headless' : 'Web Tab';
+    const engineName = resp?.engine === 'nano'
+      ? 'Nano'
+      : resp?.engine === 'cloud_api'
+        ? 'Cloud API'
+        : resp?.engine === 'custom_api'
+          ? 'Custom API'
+          : resp?.engine === 'headless'
+            ? 'Headless'
+            : 'Web Tab';
     const statusStr = resp?.statusText || (connected ? 'Ready' : 'Offline');
 
     const dotClass = `gemini-hud-status-dot ${connected ? 'connected' : (isWarning ? 'warning' : 'disconnected')}`;
@@ -1661,13 +1752,14 @@ async function handleHudDraft(hudEl) {
 
   const chosenStyle = styleSelect ? styleSelect.value : 'engaging';
 
+  const engineInfo = await getActiveEngineDisplayInfo();
   draftBtn.classList.add('loading');
   const originalText = draftText.textContent;
-  draftText.innerHTML = `<span class="gemini-spinner"></span> Generating...`;
+  draftText.innerHTML = `<span class="gemini-spinner"></span> ${engineInfo.btnLabel}`;
 
   const startTime = Date.now();
   try {
-    showToast('✦ Generating tweet with Gemini...', 'info');
+    showToast(`✦ Generating tweet with ${engineInfo.toastLabel}...`, 'info');
 
     const response = await sendRuntimeMessage({
       type: 'GENERATE_POST',
@@ -1679,23 +1771,7 @@ async function handleHudDraft(hudEl) {
     });
 
     if (!response || !response.success) {
-      const errMsg = response?.message || 'Failed to generate tweet.';
-      const isAuthIssue = response?.error === 'NOT_LOGGED_IN' ||
-                          response?.error === 'NO_TAB' ||
-                          /not logged in|session token|log in|no gemini tab/i.test(errMsg);
-      const isApiKeyIssue = response?.error === 'API_KEY_ERROR' ||
-                            /api key|api_key/i.test(errMsg);
-
-      if (isAuthIssue) {
-        showToast('Please log in to Gemini at gemini.google.com', 'error', {
-          text: 'Open Gemini',
-          onClick: () => sendRuntimeMessage({ type: 'OPEN_GEMINI' }).catch(() => {})
-        });
-      } else if (isApiKeyIssue) {
-        showToast('Gemini API key missing or invalid. Check extension settings.', 'error');
-      } else {
-        showToast(`Gemini error: ${errMsg}`, 'error');
-      }
+      showGenerationErrorToast(response, engineInfo.toastLabel, 'Failed to generate tweet.');
       return;
     }
 
@@ -1776,6 +1852,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
       const textarea = floatingHudEl.querySelector('#gemini-hud-instructions-input');
       if (textarea && textarea !== document.activeElement) {
         textarea.value = changes.customInstructions.newValue || '';
+      }
+    }
+    if (changes.maxReplyLength) {
+      const el = floatingHudEl.querySelector('#gemini-hud-reply-max');
+      if (el && el !== document.activeElement) {
+        el.value = changes.maxReplyLength.newValue ?? 280;
+      }
+    }
+    if (changes.maxPostLength) {
+      const el = floatingHudEl.querySelector('#gemini-hud-post-max');
+      if (el && el !== document.activeElement) {
+        el.value = changes.maxPostLength.newValue ?? 280;
       }
     }
   }
